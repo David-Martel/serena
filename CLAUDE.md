@@ -2,11 +2,54 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨 MANDATORY BUILD SYSTEM USAGE
+
+**ALWAYS use the project build system. NEVER use raw cargo/python commands directly.**
+
+### Build System Files (USE THESE)
+- `build.ps1` - **Windows PowerShell** (recommended for diagnostics)
+- `justfile` - **Cross-platform** (install: `cargo install just`)
+- `Makefile.toml` - **cargo-make** (install: `cargo install cargo-make`)
+
+### Pre-Build Diagnostics (RUN FIRST)
+```powershell
+# Windows - ALWAYS run before builds
+.\build.ps1 diag
+
+# Cross-platform
+just diag
+```
+
 ## Development Commands
 
+### Rust Development (USE BUILD SYSTEM)
+```powershell
+# Windows PowerShell (RECOMMENDED)
+.\build.ps1 diag              # Pre-build diagnostics
+.\build.ps1 build             # Build workspace
+.\build.ps1 build -Release    # Release build
+.\build.ps1 test              # Run all tests
+.\build.ps1 fix               # Auto-fix all issues
+.\build.ps1 ci                # Full CI pipeline
+.\build.ps1 lint              # Run clippy
+
+# Cross-platform (just)
+just diag                     # Diagnostics
+just build-all                # Build all crates
+just test                     # Run tests
+just fix                      # Auto-fix issues
+just check                    # Full quality checks
+
+# cargo-make
+cargo make dev                # Quick dev build
+cargo make test               # Run tests
+cargo make ci                 # CI pipeline
+```
+
+### Python Development (use uv)
 **Essential Commands (use these exact commands):**
 - `uv run poe format` - Format code (BLACK + RUFF) - ONLY allowed formatting command
-- `uv run poe type-check` - Run mypy type checking - ONLY allowed type checking command  
+- `uv run poe type-check` - Run mypy type checking - ONLY allowed type checking command
 - `uv run poe test` - Run tests with default markers (excludes java/rust by default)
 - `uv run poe test -m "python or go"` - Run specific language tests
 - `uv run poe test -m vue` - Run Vue tests
@@ -21,7 +64,25 @@ Available pytest markers for selective testing:
 - `uv run serena-mcp-server` - Start MCP server from project root
 - `uv run index-project` - Index project for faster tool performance
 
-**Always run format, type-check, and test before completing any task.**
+### Recommended Workflow
+```powershell
+# 1. Run diagnostics FIRST (catches environment issues)
+.\build.ps1 diag
+
+# 2. Auto-fix any issues
+.\build.ps1 fix
+
+# 3. Build
+.\build.ps1 build
+
+# 4. Test
+.\build.ps1 test
+
+# 5. Full CI before commit
+.\build.ps1 ci
+```
+
+**NEVER run raw `cargo build` or `cargo test` - ALWAYS use the build system.**
 
 ## Architecture Overview
 
@@ -87,6 +148,35 @@ Each supported language has:
 - Symbolic editing operations have snapshot tests
 - Integration tests in `test_serena_agent.py`
 - Test repositories provide realistic symbol structures
+
+### E2E Testing (Playwright)
+End-to-end tests are located in `e2e/` directory:
+
+```bash
+# Install dependencies (first time)
+just e2e-install
+
+# Run all E2E tests
+just e2e
+
+# Run specific test categories
+just e2e-frontend        # Dashboard UI tests
+just e2e-integration     # Frontend-Backend integration
+just e2e-performance     # Performance benchmarks
+just e2e-stability       # Long-running stability tests
+
+# Run with UI (interactive)
+just e2e-ui
+
+# View test report
+just e2e-report
+```
+
+**Test Categories:**
+- `@frontend` - WASM Dashboard UI tests (rendering, interactions, accessibility)
+- `@integration` - MCP server integration (SSE, tool execution, error handling)
+- `@performance` - Latency, throughput, memory usage benchmarks
+- `@stability` - Long-running operations, error recovery, resource cleanup
 
 ## Configuration Hierarchy
 

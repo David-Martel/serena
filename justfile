@@ -8,10 +8,45 @@
 # Install just: cargo install just
 # Install trunk: cargo install trunk
 # Install wasm-pack: cargo install wasm-pack
+#
+# Windows Users: Use .\build.ps1 for enhanced diagnostics
+#   .\build.ps1 diag  - Pre-build diagnostics
+#   .\build.ps1 ci    - Full CI pipeline
+
+# Set shell for Windows compatibility
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 # Default recipe - show available commands
 default:
     @just --list
+
+# =============================================================================
+# Pre-build Diagnostics (RECOMMENDED FIRST)
+# =============================================================================
+
+# Run pre-build diagnostics (Windows PowerShell)
+[windows]
+diag:
+    @powershell -ExecutionPolicy Bypass -File build.ps1 diag
+
+# Run pre-build diagnostics (Unix)
+[unix]
+diag:
+    @echo "=== Pre-build Diagnostics ==="
+    @echo "Rust version:" && rustc --version
+    @echo "Cargo version:" && cargo --version
+    @echo "Targets:" && rustup target list --installed
+    @echo "Checking workspace..." && cargo check --workspace 2>&1 | head -20
+
+# Show environment information
+[windows]
+env:
+    @powershell -ExecutionPolicy Bypass -File build.ps1 env
+
+[unix]
+env:
+    @echo "Rust:" && rustc --version && cargo --version
+    @echo "Targets:" && rustup target list --installed
 
 # =============================================================================
 # Native Rust Binary Builds
@@ -132,6 +167,17 @@ fmt-check:
 check: fmt-check lint test
     @echo "All quality checks passed"
 
+# Auto-fix all issues (format + clippy + cargo fix)
+[windows]
+fix:
+    @powershell -ExecutionPolicy Bypass -File build.ps1 fix
+
+[unix]
+fix:
+    cargo fmt --all
+    cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged
+    cargo fix --workspace --all-targets --allow-dirty --allow-staged
+
 # =============================================================================
 # Benchmarks
 # =============================================================================
@@ -205,6 +251,42 @@ run:
 # Start with debug logging
 run-debug:
     RUST_LOG=debug cargo run --package serena_core --bin serena-mcp-server
+
+# =============================================================================
+# E2E Tests (Playwright)
+# =============================================================================
+
+# Install E2E test dependencies
+e2e-install:
+    cd e2e && npm ci && npx playwright install chromium
+
+# Run all E2E tests
+e2e:
+    cd e2e && npm test
+
+# Run E2E tests with UI
+e2e-ui:
+    cd e2e && npm run test:ui
+
+# Run frontend tests only
+e2e-frontend:
+    cd e2e && npm run test:frontend
+
+# Run integration tests only
+e2e-integration:
+    cd e2e && npm run test:integration
+
+# Run performance tests only
+e2e-performance:
+    cd e2e && npm run test:performance
+
+# Run stability tests only
+e2e-stability:
+    cd e2e && npm run test:stability
+
+# Show E2E test report
+e2e-report:
+    cd e2e && npm run test:report
 
 # =============================================================================
 # CI/CD

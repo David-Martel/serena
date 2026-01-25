@@ -1,0 +1,24 @@
+{
+  "name": "serena-e2e-tests",
+  "version": "0.2.0",
+  "description": "End-to-end testing suite for Serena MCP Server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:frontend": "playwright test --grep @frontend",
+    "test:integration": "playwright test --grep @integration",
+    "test:performance": "playwright test --grep @performance",
+    "test:stability": "playwright test --grep @stability",
+    "test:report": "playwright show-report",
+    "install:browsers": "playwright install chromium firefox webkit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
