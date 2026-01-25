@@ -1,0 +1,27 @@
+[package]
+name = "serena-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serena-core = { path = "../serena-core" }
+serena-config = { path = "../serena-config" }
+serena-mcp = { path = "../serena-mcp" }
+serena-tools = { path = "../serena-tools" }
+serena-memory = { path = "../serena-memory" }
+serena-lsp = { path = "../serena-lsp" }
+serena-web = { path = "../serena-web", optional = true }
+
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+directories = { workspace = true }
+
+[features]
+default = ["web"]
+web = ["dep:serena-web"]

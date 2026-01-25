@@ -1,4 +1,26 @@
-# Base stage with common dependencies
+# ============================================================================
+# Stage 1: Rust Builder
+# ============================================================================
+FROM rust:1.75-slim AS rust-builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+
+# Build release binary
+RUN cargo build --release --package serena
+
+# ============================================================================
+# Stage 2: Python Development Base
+# ============================================================================
 FROM python:3.11-slim AS base
 SHELL ["/bin/bash", "-c"]
 
@@ -17,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     zip \
     unzip \
-    git \
+    sed \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pipx.
@@ -53,28 +75,20 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 # Set the working directory
 WORKDIR /workspaces/serena
 
-# Development target
-FROM base AS development
-# Copy all files for development
+# Copy pre-built Rust binary from builder stage
+COPY --from=rust-builder /build/target/release/serena /usr/local/bin/serena
+
+# Copy project files
 COPY . /workspaces/serena/
 
-# Create virtual environment and install dependencies with dev extras
-RUN uv venv
-RUN . .venv/bin/activate
-RUN uv pip install --all-extras -r pyproject.toml -e .
-ENV PATH="/workspaces/serena/.venv/bin:${PATH}"
+# Create Serena configuration
+ENV SERENA_HOME=/workspaces/serena/config
+RUN mkdir -p $SERENA_HOME
+RUN cp src/serena/resources/serena_config.template.yml $SERENA_HOME/serena_config.yml
+RUN sed -i 's/^gui_log_window: .*/gui_log_window: False/' $SERENA_HOME/serena_config.yml
+RUN sed -i 's/^web_dashboard_open_on_launch: .*/web_dashboard_open_on_launch: False/' $SERENA_HOME/serena_config.yml
 
-# Entrypoint to ensure environment is activated
-ENTRYPOINT ["/bin/bash", "-c", "source .venv/bin/activate && $0 $@"]
-
-# Production target
-FROM base AS production
-# Copy only necessary files for production
-COPY pyproject.toml /workspaces/serena/
-COPY README.md /workspaces/serena/
-COPY src/ /workspaces/serena/src/
-
-# Create virtual environment and install dependencies (production only)
+# Create virtual environment and install dependencies
 RUN uv venv
 RUN . .venv/bin/activate
 RUN uv pip install -r pyproject.toml -e .
@@ -83,3 +97,24 @@ ENV PATH="/workspaces/serena/.venv/bin:${PATH}"
 # Entrypoint to ensure environment is activated
 ENTRYPOINT ["/bin/bash", "-c", "source .venv/bin/activate && $0 $@"]
 
+# ============================================================================
+# Stage 3: Production Rust-only Image (minimal)
+# ============================================================================
+FROM debian:bookworm-slim AS production
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only the binary from builder
+COPY --from=rust-builder /build/target/release/serena /usr/local/bin/serena
+
+# Create non-root user
+RUN useradd -ms /bin/bash serena
+USER serena
+WORKDIR /home/serena
+
+# Default to stdio transport
+ENTRYPOINT ["serena"]
+CMD ["start", "--transport", "stdio"]

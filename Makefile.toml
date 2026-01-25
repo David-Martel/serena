@@ -1,0 +1,236 @@
+# Serena Rust Build Automation
+# cargo-make configuration for the pure Rust migration
+
+[config]
+default_to_workspace = false
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+
+# ============================================================================
+# Development Tasks
+# ============================================================================
+
+[tasks.dev]
+description = "Quick development build"
+command = "cargo"
+args = ["build", "--workspace"]
+
+[tasks.dev-release]
+description = "Development build with optimizations"
+command = "cargo"
+args = ["build", "--workspace", "--release"]
+
+# ============================================================================
+# Build Tasks
+# ============================================================================
+
+[tasks.build]
+description = "Build all crates in release mode"
+command = "cargo"
+args = ["build", "--workspace", "--release"]
+
+[tasks.build-optimized]
+description = "Build with maximum optimizations"
+command = "cargo"
+args = ["build", "--workspace", "--profile", "release-optimized"]
+
+# ============================================================================
+# Testing Tasks
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.test-release]
+description = "Run tests in release mode"
+command = "cargo"
+args = ["test", "--workspace", "--release"]
+
+[tasks.test-verbose]
+description = "Run tests with verbose output"
+command = "cargo"
+args = ["test", "--workspace", "--", "--nocapture"]
+
+# ============================================================================
+# Code Quality Tasks
+# ============================================================================
+
+[tasks.fmt]
+description = "Format all code"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.fmt-check]
+description = "Check formatting without changes"
+command = "cargo"
+args = ["fmt", "--all", "--check"]
+
+[tasks.clippy]
+description = "Run clippy lints"
+command = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.clippy-fix]
+description = "Run clippy and apply fixes"
+command = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--fix", "--allow-dirty"]
+
+[tasks.lint]
+description = "Run all linting (fmt + clippy)"
+dependencies = ["fmt-check", "clippy"]
+
+# ============================================================================
+# Documentation Tasks
+# ============================================================================
+
+[tasks.doc]
+description = "Generate documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--no-deps"]
+
+[tasks.doc-open]
+description = "Generate and open documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--no-deps", "--open"]
+
+# ============================================================================
+# Clean Tasks
+# ============================================================================
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+[tasks.clean-all]
+description = "Clean everything including lockfile"
+script = '''
+cargo clean
+rm -f Cargo.lock
+'''
+
+# ============================================================================
+# CI/CD Tasks
+# ============================================================================
+
+[tasks.ci]
+description = "Full CI pipeline"
+dependencies = ["fmt-check", "clippy", "test", "doc"]
+
+[tasks.ci-quick]
+description = "Quick CI check"
+dependencies = ["fmt-check", "clippy", "test"]
+
+# ============================================================================
+# Release Tasks
+# ============================================================================
+
+[tasks.release]
+description = "Build optimized release"
+dependencies = ["test", "build-optimized"]
+
+[tasks.package]
+description = "Create distribution package"
+script = '''
+cargo build --workspace --profile release-optimized
+
+# Get version from workspace Cargo.toml (no jq dependency)
+VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+echo "Packaging serena v${VERSION}"
+
+# Create dist directory
+mkdir -p dist
+
+# Copy binary (adjust path based on OS)
+if [ -f "target/release-optimized/serena.exe" ]; then
+    cp target/release-optimized/serena.exe dist/serena-${VERSION}-windows-x64.exe
+elif [ -f "target/release-optimized/serena" ]; then
+    cp target/release-optimized/serena dist/serena-${VERSION}-linux-x64
+    strip dist/serena-${VERSION}-linux-x64
+fi
+
+echo "Package created in dist/"
+'''
+
+# ============================================================================
+# MCP Server Tasks
+# ============================================================================
+
+[tasks.mcp-start]
+description = "Start MCP server (stdio)"
+command = "cargo"
+args = ["run", "--release", "--package", "serena", "--", "start", "--transport", "stdio"]
+
+[tasks.mcp-test]
+description = "Test MCP server"
+script = '''
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | cargo run --release --package serena -- start --transport stdio
+'''
+
+# ============================================================================
+# Development Helpers
+# ============================================================================
+
+[tasks.watch]
+description = "Watch for changes and rebuild"
+install_crate = "cargo-watch"
+command = "cargo"
+args = ["watch", "-x", "check", "-x", "test"]
+
+[tasks.check]
+description = "Quick check without building"
+command = "cargo"
+args = ["check", "--workspace", "--all-targets"]
+
+[tasks.tree]
+description = "Show dependency tree"
+command = "cargo"
+args = ["tree", "--workspace"]
+
+[tasks.outdated]
+description = "Check for outdated dependencies"
+install_crate = "cargo-outdated"
+command = "cargo"
+args = ["outdated", "--workspace"]
+
+# ============================================================================
+# Benchmarking Tasks
+# ============================================================================
+
+[tasks.bench]
+description = "Run benchmarks"
+command = "cargo"
+args = ["bench", "--workspace"]
+
+[tasks.bench-baseline]
+description = "Run benchmarks and save baseline"
+script = '''
+cargo bench --workspace -- --save-baseline main
+'''
+
+# ============================================================================
+# Cross-Platform Build Tasks
+# ============================================================================
+
+[tasks.cross-build-windows]
+description = "Cross-compile for Windows"
+command = "cross"
+args = ["build", "--target", "x86_64-pc-windows-msvc", "--release", "--package", "serena"]
+
+[tasks.cross-build-linux]
+description = "Cross-compile for Linux"
+command = "cross"
+args = ["build", "--target", "x86_64-unknown-linux-gnu", "--release", "--package", "serena"]
+
+[tasks.cross-build-macos]
+description = "Cross-compile for macOS"
+command = "cross"
+args = ["build", "--target", "x86_64-apple-darwin", "--release", "--package", "serena"]
+
+[tasks.cross-build-all]
+description = "Build for all platforms"
+dependencies = ["cross-build-windows", "cross-build-linux", "cross-build-macos"]

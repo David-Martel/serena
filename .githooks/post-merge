@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# Post-merge hook: Cleans up Windows 'nul' device files after merges.
+#
+# Merging branches may introduce 'nul' files from other branches.
+# This hook ensures they're cleaned up after any merge.
+
+# Get repository root
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+
+if [ -z "$REPO_ROOT" ]; then
+    exit 0
+fi
+
+# Find and remove nul files (silently)
+find "$REPO_ROOT" -name 'nul' -type f -delete 2>/dev/null
+
+exit 0

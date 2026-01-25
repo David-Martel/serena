@@ -465,8 +465,11 @@ def search_files(
     log.info(f"Processing {len(filtered_paths)} files.")
 
     # Prefer Rust core when available and explicitly enabled; fall back to Python otherwise.
+    # Important: only use the Rust path when using the default file reader. Callers/tests may inject a
+    # custom file_reader that does not correspond to real on-disk files; the Rust core cannot use that.
     matches: list[MatchedConsecutiveLines]
-    if serena_core is not None and USE_SERENA_CORE:  # type: ignore[truthy-function]
+    use_rust = serena_core is not None and USE_SERENA_CORE and file_reader is default_file_reader  # type: ignore[truthy-function]
+    if use_rust:
         try:
             matches = _search_files_rust(
                 filtered_paths,

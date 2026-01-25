@@ -47,28 +47,30 @@ As a consequence, you will need to specify paths when using CLI commands that wo
 :::
 
 (docker)=
-### Using Docker (Experimental)
+### Using Docker 
 
-:::{warning}
-Docker support is currently experimental with several limitations. 
-:::
+The Docker approach offers several advantages:
 
-You can run the Serena MCP server directly via docker as follows,
+* better security isolation for shell command execution
+* no need to install language servers and dependencies locally
+* consistent environment across different systems
+
+You can run the Serena MCP server directly via Docker as follows,
 assuming that the projects you want to work on are all located in `/path/to/your/projects`:
 
 ```shell
 docker run --rm -i --network host -v /path/to/your/projects:/workspaces/projects ghcr.io/oraios/serena:latest serena 
 ```
 
-Replace `/path/to/your/projects` with the absolute path to your projects directory. The Docker approach provides:
+This command mounts your projects into the container under `/workspaces/projects`, so when working with projects, 
+you need to refer to them using the respective path (e.g. `/workspaces/projects/my-project`).
 
-* Better security isolation for shell command execution
-* No need to install language servers and dependencies locally
-* Consistent environment across different systems
+Alternatively, you may use Docker compose with the `compose.yml` file provided in the repository.
+See our [advanced Docker usage](https://github.com/oraios/serena/blob/main/DOCKER.md) documentation for more detailed instructions, configuration options, and limitations.
 
-Alternatively, use docker compose with the `compose.yml` file provided in the repository.
-
-See our [Docker Setup](https://github.com/oraios/serena/blob/main/DOCKER.md) documentation for more detailed setup instructions, configuration options, and known limitations.
+:::{note}
+Docker usage is subject to limitations; see the [advanced Docker usage](https://github.com/oraios/serena/blob/main/DOCKER.md) documentation for details.
+:::
 
 ### Using Nix
 
@@ -148,6 +150,7 @@ to get a list of all available options.
 Some useful options include:
 
   * `--project <path|name>`: specify the project to work on by name or path.
+  * `--project-from-cwd`: auto-detect project from current working directory (searches up for `.serena/project.yml` or `.git`, falls back to CWD). Intended only for CLI-based agents like Claude Code, Gemini and Codex.
   * `--context <context>`: specify the operation [context](contexts) in which Serena shall operate
   * `--mode <mode>`: specify one or more [modes](modes) to enable (can be passed several times)
   * `--enable-web-dashboard <true|false>`: enable or disable the web dashboard (enabled by default)

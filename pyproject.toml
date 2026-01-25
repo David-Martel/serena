@@ -19,7 +19,7 @@ dependencies = [
   "fortls>=3.2.2",
   "overrides>=7.7.0,<8",
   "python-dotenv>=1.0.0, <2",
-  "mcp==1.12.3",
+  "mcp==1.23.0",
   "flask>=3.0.0",
   "sensai-utils>=1.5.0",
   "pydantic>=2.10.6",
@@ -46,12 +46,18 @@ explicit = true
 [project.scripts]
 serena = "serena.cli:top_level"
 serena-mcp-server = "serena.cli:start_mcp_server"
+serena-tui = "serena.tui.app:main"
 index-project = "serena.cli:index_project"        # deprecated
 
 [project.license]
 text = "MIT"
 
 [project.optional-dependencies]
+# Rich terminal UI (optional)
+# Installed via: `serena-agent[tui]`
+# Note: The `serena-tui` entrypoint exists regardless, but will show a helpful error if Textual isn't installed.
+tui = ["textual>=0.50,<2"]
+
 dev = [
   "black[jupyter]>=23.7.0",
   "jinja2",
@@ -60,11 +66,18 @@ dev = [
   "poethepoet>=0.20.0",
   "pytest>=8.0.2",
   "pytest-xdist>=3.5.0",
+  "pytest-cov>=4.1.0",
+  "pytest-timeout>=2.3.1",
+  "pytest-benchmark>=4.0.0",
+  "pytest-asyncio>=0.23.0",
+  "hypothesis>=6.100.0",
   "ruff>=0.0.285",
   "toml-sort>=0.24.2",
   "types-pyyaml>=6.0.12.20241230",
   "syrupy>=4.9.1",
   "types-requests>=2.32.4.20241230",
+  # Rust / PyO3 build tooling (for local serena_core builds)
+  "maturin>=1.5,<2",
   # docs
   "sphinx>=7,<8",
   "sphinx_rtd_theme>=0.5.1",
@@ -72,6 +85,8 @@ dev = [
   "jupyter-book>=1,<2",
   "nbsphinx",
   "pyinstrument",
+  # performance profiling
+  "memray>=1.12.0",
 ]
 agno = ["agno>=2.2.1", "sqlalchemy>=2.0.40"]
 google = ["google-genai>=1.8.0"]
@@ -121,7 +136,26 @@ PYDEVD_DISABLE_FILE_VALIDATION = "1"
 # Uses PYTEST_MARKERS env var for default markers
 # For custom markers, one can either adjust the env var or just use -m option in the command line,
 # as the second -m option will override the first one.
-test = "pytest test -vv -m \"${PYTEST_MARKERS:-not rust and not erlang}\""
+
+# Fast local test suite (default): skips tests that download/install large runtime deps.
+# Run `poe test-full` for the full CI-like suite.
+_test_fast = "pytest test -vv -m \"not requires_network\""
+_test_full = "pytest test -vv"
+_test_cov = "pytest test -vv -m \"not requires_network\" --cov=src --cov-report=term-missing --cov-report=html"
+_test_cov_full = "pytest test -vv --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml"
+_test_unit = "pytest test -vv -m \"unit\" --cov=src --cov-report=term-missing"
+_test_integration = "pytest test -vv -m \"integration\" --timeout=600"
+_test_benchmark = "pytest test -vv -m \"benchmark\" --benchmark-autosave --benchmark-compare"
+
+test = ["_test_fast"]
+test-fast = ["_test_fast"]
+test-full = ["_test_full"]
+test-cov = ["_test_cov"]
+test-cov-full = ["_test_cov_full"]
+test-unit = ["_test_unit"]
+test-integration = ["_test_integration"]
+test-bench = ["_test_benchmark"]
+
 _black_check = "black --check src scripts test"
 _ruff_check = "ruff check src scripts test"
 _black_format = "black src scripts test"
@@ -130,6 +164,17 @@ lint = ["_black_check", "_ruff_check"]
 format = ["_ruff_format", "_black_format"]
 _mypy = "mypy src/serena src/solidlsp"
 type-check = ["_mypy"]
+
+# Build (local): ensure the optional PyO3 / maturin-built extension is built and installed.
+# This is expected to fail if no Rust toolchain is installed.
+build-core = "python -m maturin develop --release -m serena_core/Cargo.toml"
+
+# Fast local verification pass (default)
+build = ["lint", "type-check", "build-core", "test-fast"]
+
+# Full verification pass (CI-like; may need network and many language toolchains)
+build-full = ["lint", "type-check", "build-core", "test-full"]
+
 # docs
 _autogen_rst = "python docs/autogen_rst.py"
 _sphinx_build = "sphinx-build -b html docs docs/_build -W --keep-going"
@@ -266,15 +311,19 @@ max-complexity = 20
 "scripts/**" = ["D103"]
 
 [tool.pytest.ini_options]
-addopts = "--snapshot-patch-pycharm-diff"
+addopts = "--snapshot-patch-pycharm-diff -v --tb=short"
+asyncio_mode = "auto"
+timeout = 300
 markers = [
   "clojure: language server running for Clojure",
   "python: language server running for Python",
   "go: language server running for Go",
   "java: language server running for Java",
   "kotlin: language server running for kotlin",
+  "groovy: language server running for Groovy",
   "rust: language server running for Rust",
   "typescript: language server running for TypeScript",
+  "vue: language server running for Vue (uses TypeScript LSP)",
   "php: language server running for PHP",
   "perl: language server running for Perl",
   "csharp: language server running for C#",
@@ -293,17 +342,54 @@ markers = [
   "erlang: language server running for Erlang",
   "scala: language server running for Scala",
   "al: language server running for AL (Microsoft Dynamics 365 Business Central)",
+  "fsharp: language server running for F#",
   "rego: language server running for Rego",
   "markdown: language server running for Markdown",
-  "julia: Julia language server tests",
   "fortran: language server running for Fortran",
   "haskell: Haskell language server tests",
   "yaml: language server running for YAML",
+  "powershell: language server running for PowerShell",
+  "slow: tests that require additional Expert instances and have long startup times (~60-90s each)",
+  "toml: language server running for TOML",
+  "requires_network: downloads/installs runtime dependencies (npm, NuGet, language servers, etc.)",
+  "benchmark: performance benchmark tests",
+  "security: security-related tests",
+  "integration: cross-component integration tests",
+  "unit: isolated unit tests",
+  "mcp: MCP protocol tests",
 ]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+omit = [
+  "*/tests/*",
+  "*/__pycache__/*",
+  "*/language_servers/*/static/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "@abstractmethod",
+]
+fail_under = 70
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [tool.codespell]
 # Ref: https://github.com/codespell-project/codespell#using-a-config-file
-skip = '.git*,*.svg,*.lock,*.min.*'
+skip = '.git*,*.svg,*.lock,*.min.*,archive/*'
 check-hidden = true
 # ignore-regex = ''
-# ignore-words-list = ''
+# edn = Clojure EDN file extension, te = variable prefix in legacy code
+ignore-words-list = 'paket,edn,te'

@@ -1,0 +1,23 @@
+[package]
+name = "serena-web"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serena-core = { path = "../serena-core" }
+serena-mcp = { path = "../serena-mcp" }
+tokio = { workspace = true, features = ["io-std", "io-util", "sync", "macros", "rt-multi-thread"] }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+async-stream = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "rt"] }

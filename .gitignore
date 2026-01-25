@@ -13,6 +13,9 @@ Icon
 .com.apple.timemachine.donotpresent
 
 # Windows specific files
+# NUL is a reserved device name on Windows - these files can't be tracked by git
+nul
+**/nul
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
@@ -202,19 +205,11 @@ pylint.html
 /agent-ui
 /test/**/.serena
 
-# dynamic LS installations
-/src/multilspy/language_servers/*/static
-/src/solidlsp/language_servers/*/static
-/src/solidlsp/language_servers/static
-
 # clojure-lsp temporary files
 .calva/
 .clj-kondo/
 .cpcache/
 .lsp/
-
-# Cache is in .multilspy 
-**/.multilspy/**
 
 # temporary and backup files
 *.bak
@@ -260,3 +255,6 @@ stack.yaml.lock
 dist-newstyle/
 cabal.project.local*
 .ghc.environment.*
+
+zz-misc/
+vue-implementation/

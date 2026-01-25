@@ -1,0 +1,19 @@
+[package]
+name = "serena-commands"
+version.workspace = true
+edition.workspace = true
+description = "Command execution tools for Serena - shell command execution with security controls"
+
+[dependencies]
+serena-core = { path = "../serena-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"

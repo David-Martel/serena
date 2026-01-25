@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# Pre-commit hook: Automatically removes Windows 'nul' device files before commits.
+#
+# On Windows, 'nul' is a reserved device name that git cannot track.
+# This hook ensures these files are cleaned up before any commit.
+
+# Get repository root
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+
+if [ -z "$REPO_ROOT" ]; then
+    echo "Warning: Could not determine repository root"
+    exit 0
+fi
+
+# Find and remove nul files
+# Using find with -name 'nul' (case-sensitive on Unix, case-insensitive on Windows via Git Bash)
+NUL_FILES=$(find "$REPO_ROOT" -name 'nul' -type f 2>/dev/null)
+
+if [ -n "$NUL_FILES" ]; then
+    echo "Pre-commit: Cleaning up Windows 'nul' device files..."
+    echo "$NUL_FILES" | while read -r file; do
+        if [ -f "$file" ]; then
+            rm -f "$file" 2>/dev/null && echo "  Removed: $file"
+        fi
+    done
+    echo "Pre-commit: Cleanup complete."
+fi
+
+# Always succeed - don't block commits for cleanup issues
+exit 0

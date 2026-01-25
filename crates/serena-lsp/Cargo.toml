@@ -1,0 +1,30 @@
+[package]
+name = "serena-lsp"
+version.workspace = true
+edition.workspace = true
+description = "LSP client and language server management for Serena"
+
+[dependencies]
+serena-core = { path = "../serena-core" }
+serena-config = { path = "../serena-config" }
+tokio = { workspace = true }
+lsp-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+url = "2.5"
+
+# Resource management (downloading/extracting language servers)
+reqwest = { workspace = true }
+zip = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"

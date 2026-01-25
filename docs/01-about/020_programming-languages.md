@@ -20,15 +20,19 @@ With Serena, we provide direct, out-of-the-box support for:
 * **Clojure**
 * **Dart**
 * **Elixir**  
-  (requires installation of NextLS and Elixir; Windows not supported)
+  (requires Elixir installation; Expert language server is downloaded automatically)
 * **Elm**  
   (requires Elm compiler)
 * **Erlang**  
   (requires installation of beam and [erlang_ls](https://github.com/erlang-ls/erlang_ls); experimental, might be slow or hang)
-* **Fortran**  
+* **F#**  
+  (requires .NET SDK 8.0+; uses FsAutoComplete/Ionide, which is auto-installed; for Homebrew .NET on macOS, set DOTNET_ROOT in your environment)
+* **Fortran**   
   (requires installation of fortls: `pip install fortls`)
 * **Go**  
   (requires installation of `gopls`)
+* **Groovy**  
+  (requires local groovy-language-server.jar setup via GROOVY_LS_JAR_PATH or configuration)
 * **Haskell**  
   (automatically locates HLS via ghcup, stack, or system PATH; supports Stack and Cabal projects)
 * **Java**  
@@ -56,6 +60,9 @@ With Serena, we provide direct, out-of-the-box support for:
   (requires some [manual setup](../03-special-guides/scala_setup_guide_for_serena); uses Metals LSP)
 * **Swift**
 * **TypeScript**
+* **Vue**    
+  (3.x with TypeScript; requires Node.js v18+ and npm; supports .vue Single File Components with monorepo detection)
+* **YAML**
 * **Zig**  
   (requires installation of ZLS - Zig Language Server)
 

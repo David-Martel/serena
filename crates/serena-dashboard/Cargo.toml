@@ -1,0 +1,58 @@
+[package]
+name = "serena-dashboard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Serena Dashboard - WASM Frontend"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Leptos - Rust reactive web framework
+leptos = { version = "0.6", features = ["csr"] }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Window",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+    "Performance",
+] }
+js-sys = "0.3"
+
+# Serialization for API calls
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async support
+gloo-net = "0.6"
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+# Console logging
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+log = "0.4"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = []
+hydrate = ["leptos/hydrate"]
+
+# Optimize WASM for size in release
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

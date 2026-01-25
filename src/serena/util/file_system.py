@@ -9,6 +9,11 @@ import pathspec
 from pathspec import PathSpec
 from sensai.util.logging import LogTime
 
+try:
+    import serena_core
+except ImportError:
+    serena_core = None
+
 log = logging.getLogger(__name__)
 
 
@@ -91,6 +96,12 @@ def find_all_non_ignored_files(repo_root: str) -> list[str]:
     :param repo_root: The root directory of the repository
     :return: A list of all non-ignored files in the repository
     """
+    if serena_core:
+        try:
+            return serena_core.walk_files_gitignored(repo_root, None)
+        except Exception as e:
+            log.warning(f"serena_core.walk_files_gitignored failed: {e}")
+
     gitignore_parser = GitignoreParser(repo_root)
     _, files = scan_directory(
         repo_root, recursive=True, is_ignored_dir=gitignore_parser.should_ignore, is_ignored_file=gitignore_parser.should_ignore

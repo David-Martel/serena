@@ -1,0 +1,128 @@
+diff --git a/crates/serena-web/src/server.rs b/crates/serena-web/src/server.rs
+index abc123..def456 100644
+--- a/crates/serena-web/src/server.rs
++++ b/crates/serena-web/src/server.rs
+@@ -29,9 +29,11 @@ pub struct WebServerConfig {
+
+ impl Default for WebServerConfig {
+     fn default() -> Self {
++        const DEFAULT_BIND: &str = "127.0.0.1:3000";
+         Self {
+-            bind_addr: "127.0.0.1:3000".parse().unwrap(),
++            bind_addr: DEFAULT_BIND
++                .parse()
++                .expect("DEFAULT_BIND constant must be valid SocketAddr"),
+             enable_cors: true,
+             max_body_size: 10 * 1024 * 1024, // 10MB
+         }
+@@ -166,7 +168,9 @@ mod tests {
+         use serena_core::ToolRegistry;
+
+         let config = WebServerConfig {
+-            bind_addr: "0.0.0.0:8080".parse().unwrap(),
++            bind_addr: "0.0.0.0:8080"
++                .parse()
++                .expect("Test bind address should be valid SocketAddr"),
+             enable_cors: false,
+             max_body_size: 5 * 1024 * 1024,
+         };
+
+diff --git a/crates/serena-web/src/sse.rs b/crates/serena-web/src/sse.rs
+index abc123..def456 100644
+--- a/crates/serena-web/src/sse.rs
++++ b/crates/serena-web/src/sse.rs
+@@ -109,12 +109,16 @@ mod tests {
+         let (transport, mut stream) = SseTransport::new();
+
+         let response = McpResponse::success(Some(1), serde_json::json!({"test": "data"}));
+-        transport.send(response.clone()).unwrap();
++        transport
++            .send(response.clone())
++            .expect("Should send response in test");
+
+         // Receive the response
+         let received = stream.rx.recv().await;
+-        assert!(received.is_some());
+-        let received = received.unwrap();
++        assert!(
++            received.is_some(),
++            "Should receive response from channel"
++        );
++        let received = received.expect("Received value should exist");
+         assert_eq!(received.id, Some(1));
+     }
+
+diff --git a/crates/serena-lsp/src/client.rs b/crates/serena-lsp/src/client.rs
+index abc123..def456 100644
+--- a/crates/serena-lsp/src/client.rs
++++ b/crates/serena-lsp/src/client.rs
+@@ -354,7 +354,8 @@ mod tests {
+             id: 1,
+         };
+
+-        let serialized = serde_json::to_string(&req).unwrap();
++        let serialized = serde_json::to_string(&req)
++            .expect("JsonRpcRequest should serialize to JSON");
+         assert!(serialized.contains("\"method\":\"initialize\""));
+         assert!(serialized.contains("\"id\":1"));
+     }
+@@ -363,7 +364,8 @@ mod tests {
+     fn test_jsonrpc_response_deserialization() {
+         // Test with non-null result
+         let json = r#"{"jsonrpc":"2.0","id":1,"result":{"success":true}}"#;
+-        let resp: JsonRpcResponse = serde_json::from_str(json).unwrap();
++        let resp: JsonRpcResponse = serde_json::from_str(json)
++            .expect("Valid JSON should deserialize to JsonRpcResponse");
+         assert_eq!(resp.id, Some(1));
+         assert!(resp.result.is_some());
+         assert!(resp.error.is_none());
+@@ -371,7 +373,8 @@ mod tests {
+         // Test with null result
+         let json_null = r#"{"jsonrpc":"2.0","id":2,"result":null}"#;
+-        let resp_null: JsonRpcResponse = serde_json::from_str(json_null).unwrap();
++        let resp_null: JsonRpcResponse = serde_json::from_str(json_null)
++            .expect("Valid JSON with null result should deserialize");
+         assert_eq!(resp_null.id, Some(2));
+         // Note: serde deserializes null as None for Option<Value>
+         assert!(resp_null.result.is_none() || resp_null.result == Some(Value::Null));
+
+diff --git a/crates/serena-mcp/src/transport/http.rs b/crates/serena-mcp/src/transport/http.rs
+index abc123..def456 100644
+--- a/crates/serena-mcp/src/transport/http.rs
++++ b/crates/serena-mcp/src/transport/http.rs
+@@ -103,7 +103,9 @@ mod tests {
+         assert!(response.result.is_none());
+         assert!(response.error.is_some());
+
+-        let error = response.error.unwrap();
++        let error = response
++            .error
++            .expect("Response should contain error for unknown method");
+         assert_eq!(error.code, -32601);
+     }
+ }
+
+diff --git a/crates/serena-mcp/src/transport/stdio.rs b/crates/serena-mcp/src/transport/stdio.rs
+index abc123..def456 100644
+--- a/crates/serena-mcp/src/transport/stdio.rs
++++ b/crates/serena-mcp/src/transport/stdio.rs
+@@ -110,7 +110,8 @@ mod tests {
+     #[test]
+     fn test_mcp_request_deserialization() {
+         let json = r#"{"jsonrpc":"2.0","method":"initialize","id":1}"#;
+-        let request: McpRequest = serde_json::from_str(json).unwrap();
++        let request: McpRequest = serde_json::from_str(json)
++            .expect("Valid MCP JSON should deserialize to McpRequest");
+         assert_eq!(request.method, "initialize");
+         assert_eq!(request.id, Some(1));
+     }
+@@ -120,7 +121,8 @@ mod tests {
+             error: None,
+         };
+
+-        let json = serde_json::to_string(&response).unwrap();
++        let json = serde_json::to_string(&response)
++            .expect("McpResponse should serialize to JSON");
+         assert!(json.contains("\"result\""));
+     }
+ }

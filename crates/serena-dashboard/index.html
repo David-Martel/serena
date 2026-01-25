@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serena Dashboard</title>
+    <link rel="icon" type="image/png" sizes="16x16" href="serena-icon-16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="serena-icon-32.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="serena-icon-48.png">
+
+    <!-- Trunk will inject the WASM bundle and CSS here -->
+    <link data-trunk rel="css" href="styles/dashboard.css">
+    <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="z">
+</head>
+<body>
+    <!-- App will be mounted here by Leptos -->
+    <noscript>
+        <div style="padding: 2rem; text-align: center; font-family: system-ui;">
+            <h1>JavaScript Required</h1>
+            <p>The Serena Dashboard requires WebAssembly and JavaScript to run.</p>
+            <p>Please enable JavaScript in your browser settings.</p>
+        </div>
+    </noscript>
+</body>
+</html>

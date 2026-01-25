@@ -1,0 +1,22 @@
+[package]
+name = "serena-symbol"
+version.workspace = true
+edition.workspace = true
+description = "Symbol operation tools for Serena - semantic code navigation and editing"
+
+[dependencies]
+serena-core = { path = "../serena-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+lsp-types = { workspace = true }
+dashmap = { workspace = true }
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"

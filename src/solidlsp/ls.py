@@ -25,7 +25,6 @@ from solidlsp import ls_types
 from solidlsp.ls_config import Language, LanguageServerConfig
 from solidlsp.ls_exceptions import SolidLSPException
 from solidlsp.ls_handler import SolidLanguageServerHandler
-from solidlsp.ls_logger import LanguageServerLogger
 from solidlsp.ls_types import UnifiedSymbolInformation
 from solidlsp.ls_utils import FileUtils, PathUtils, TextUtils
 from solidlsp.lsp_protocol_handler import lsp_types
@@ -207,7 +206,6 @@ class SolidLanguageServer(ABC):
     def create(
         cls,
         config: LanguageServerConfig,
-        logger: LanguageServerLogger,
         repository_root_path: str,
         timeout: float | None = None,
         solidlsp_settings: SolidLSPSettings | None = None,
@@ -229,18 +227,20 @@ class SolidLanguageServer(ABC):
         if solidlsp_settings is None:
             solidlsp_settings = SolidLSPSettings()
 
+        # Ensure repository_root_path is absolute to avoid issues with file URIs
+        repository_root_path = os.path.abspath(repository_root_path)
+
         ls_class = config.code_language.get_ls_class()
         # For now, we assume that all language server implementations have the same signature of the constructor
         # (which, unfortunately, differs from the signature of the base class).
         # If this assumption is ever violated, we need branching logic here.
-        ls = ls_class(config, logger, repository_root_path, solidlsp_settings)  # type: ignore
+        ls = ls_class(config, repository_root_path, solidlsp_settings)  # type: ignore
         ls.set_request_timeout(timeout)
         return ls
 
     def __init__(
         self,
         config: LanguageServerConfig,
-        logger: LanguageServerLogger,
         repository_root_path: str,
         process_launch_info: ProcessLaunchInfo,
         language_id: str,
@@ -252,13 +252,11 @@ class SolidLanguageServer(ABC):
 
         Do not instantiate this class directly. Use `LanguageServer.create` method instead.
 
-        :param config: The Multilspy configuration.
-        :param logger: The logger to use.
-        :param repository_root_path: The root path of the repository.
-        :param process_launch_info: Each language server has a specific command used to start the server.
-                    This parameter is the command to launch the language server process.
-                    The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
-                    as opposed to HTTP, TCP modes supported by some language servers.
+        :param config: the global SolidLSP configuration.
+        :param repository_root_path: the root path of the repository.
+        :param process_launch_info: the command used to start the actual language server.
+            The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
+            as opposed to HTTP, TCP modes supported by some language servers.
         :param cache_version_raw_document_symbols: the version, for caching, of the raw document symbols coming
             from this specific language server. This should be incremented by subclasses calling this constructor
             whenever the format of the raw document symbols changes (typically because the language server
@@ -267,21 +265,35 @@ class SolidLanguageServer(ABC):
         self._solidlsp_settings = solidlsp_settings
         lang = self.get_language_enum_instance()
         self._custom_settings = solidlsp_settings.get_ls_specific_settings(lang)
-        logger.log(
-            f"Custom config (LS-specific settings) for {lang}: {self._custom_settings}",
-            logging.DEBUG,
-        )
+        log.debug(f"Custom config (LS-specific settings) for {lang}: {self._custom_settings}")
         self._encoding = config.encoding
-        self.logger = logger
         self.repository_root_path: str = repository_root_path
-        self.logger.log(
-            f"Creating language server instance for {repository_root_path=} with {language_id=} and process launch info: {process_launch_info}",
-            logging.DEBUG,
+        log.debug(
+            f"Creating language server instance for {repository_root_path=} with {language_id=} and process launch info: {process_launch_info}"
         )
 
         self.language_id = language_id
         self.open_file_buffers: dict[str, LSPFileBuffer] = {}
         self.language = Language(language_id)
+
+        # Initialize Rust ProjectHost
+        self.use_rust = False
+        use_rust_env = os.getenv("SERENA_USE_RUST_CORE", "1") != "0"
+        if use_rust_env:
+            try:
+                import serena_core
+
+                self.project_host = serena_core.ProjectHost(self.repository_root_path)
+                self.use_rust = True
+                log.info("Successfully initialized Rust ProjectHost")
+            except ImportError as e:
+                log.warning(f"serena_core not found or failed to initialize, falling back to Python implementation: {e}")
+                self.use_rust = False
+            except Exception as e:
+                log.warning(f"Failed to initialize Rust ProjectHost: {e}")
+                self.use_rust = False
+        else:
+            log.info("Rust ProjectHost disabled via environment variable")
 
         # initialise symbol caches
         self.cache_dir = (
@@ -305,16 +317,14 @@ class SolidLanguageServer(ABC):
         if config.trace_lsp_communication:
 
             def logging_fn(source: str, target: str, msg: StringDict | str) -> None:
-                self.logger.log(f"LSP: {source} -> {target}: {msg!s}", self.logger.logger.level)
+                log.debug(f"LSP: {source} -> {target}: {msg!s}")
 
         else:
             logging_fn = None  # type: ignore
 
         # cmd is obtained from the child classes, which provide the language specific command to start the language server
         # LanguageServerHandler provides the functionality to start the language server and communicate with it
-        self.logger.log(
-            f"Creating language server instance with {language_id=} and process launch info: {process_launch_info}", logging.DEBUG
-        )
+        log.debug(f"Creating language server instance with {language_id=} and process launch info: {process_launch_info}")
         self.server = SolidLanguageServerHandler(
             process_launch_info,
             language=self.language,
@@ -330,7 +340,7 @@ class SolidLanguageServer(ABC):
             # Normalize separators (pathspec expects forward slashes)
             pattern = pattern.replace(os.path.sep, "/")
             processed_patterns.append(pattern)
-        self.logger.log(f"Processing {len(processed_patterns)} ignored paths from the config", logging.DEBUG)
+        log.debug(f"Processing {len(processed_patterns)} ignored paths from the config")
 
         # Create a pathspec matcher from the processed patterns
         self._ignore_spec = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, processed_patterns)
@@ -354,10 +364,11 @@ class SolidLanguageServer(ABC):
         self.server.set_request_timeout(timeout)
 
     def get_ignore_spec(self) -> pathspec.PathSpec:
-        """Returns the pathspec matcher for the paths that were configured to be ignored through
-        the multilspy config.
+        """
+        Returns the pathspec matcher for the paths that were configured to be ignored through
+        the language server configuration.
 
-        This is is a subset of the full language-specific ignore spec that determines
+        This is a subset of the full language-specific ignore spec that determines
         which files are relevant for the language server.
 
         This matcher is useful for operations outside of the language server,
@@ -406,21 +417,26 @@ class SolidLanguageServer(ABC):
         A robust shutdown process designed to terminate cleanly on all platforms, including Windows,
         by explicitly closing all I/O pipes.
         """
-        if not self.server.is_running():
-            self.logger.log("Server process not running, skipping shutdown.", logging.DEBUG)
+        if self.use_rust:
+            log.info("Stopping Rust-backed Language Server")
+            # Rust ProjectHost handles shutdown when it is dropped or re-initialized
             return
 
-        self.logger.log(f"Initiating final robust shutdown with a {timeout}s timeout...", logging.INFO)
+        if not self.server.is_running():
+            log.debug("Server process not running, skipping shutdown.")
+            return
+
+        log.info(f"Initiating final robust shutdown with a {timeout}s timeout...")
         process = self.server.process
         if process is None:
-            self.logger.log("Server process is None, cannot shutdown.", logging.DEBUG)
+            log.debug("Server process is None, cannot shutdown.")
             return
 
         # --- Main Shutdown Logic ---
         # Stage 1: Graceful Termination Request
         # Send LSP shutdown and close stdin to signal no more input.
         try:
-            self.logger.log("Sending LSP shutdown request...", logging.DEBUG)
+            log.debug("Sending LSP shutdown request...")
             # Use a thread to timeout the LSP shutdown call since it can hang
             shutdown_thread = threading.Thread(target=self.server.shutdown)
             shutdown_thread.daemon = True
@@ -428,37 +444,37 @@ class SolidLanguageServer(ABC):
             shutdown_thread.join(timeout=2.0)  # 2 second timeout for LSP shutdown
 
             if shutdown_thread.is_alive():
-                self.logger.log("LSP shutdown request timed out, proceeding to terminate...", logging.DEBUG)
+                log.debug("LSP shutdown request timed out, proceeding to terminate...")
             else:
-                self.logger.log("LSP shutdown request completed.", logging.DEBUG)
+                log.debug("LSP shutdown request completed.")
 
             if process.stdin and not process.stdin.closed:
                 process.stdin.close()
-            self.logger.log("Stage 1 shutdown complete.", logging.DEBUG)
+            log.debug("Stage 1 shutdown complete.")
         except Exception as e:
-            self.logger.log(f"Exception during graceful shutdown: {e}", logging.DEBUG)
+            log.debug(f"Exception during graceful shutdown: {e}")
             # Ignore errors here, we are proceeding to terminate anyway.
 
         # Stage 2: Terminate and Wait for Process to Exit
-        self.logger.log(f"Terminating process {process.pid}, current status: {process.poll()}", logging.DEBUG)
+        log.debug(f"Terminating process {process.pid}, current status: {process.poll()}")
         process.terminate()
 
         # Stage 3: Wait for process termination with timeout
         try:
-            self.logger.log(f"Waiting for process {process.pid} to terminate...", logging.DEBUG)
+            log.debug(f"Waiting for process {process.pid} to terminate...")
             exit_code = process.wait(timeout=timeout)
-            self.logger.log(f"Language server process terminated successfully with exit code {exit_code}.", logging.INFO)
+            log.info(f"Language server process terminated successfully with exit code {exit_code}.")
         except subprocess.TimeoutExpired:
             # If termination failed, forcefully kill the process
-            self.logger.log(f"Process {process.pid} termination timed out, killing process forcefully...", logging.WARNING)
+            log.warning(f"Process {process.pid} termination timed out, killing process forcefully...")
             process.kill()
             try:
                 exit_code = process.wait(timeout=2.0)
-                self.logger.log(f"Language server process killed successfully with exit code {exit_code}.", logging.INFO)
+                log.info(f"Language server process killed successfully with exit code {exit_code}.")
             except subprocess.TimeoutExpired:
-                self.logger.log(f"Process {process.pid} could not be killed within timeout.", logging.ERROR)
+                log.error(f"Process {process.pid} could not be killed within timeout.")
         except Exception as e:
-            self.logger.log(f"Error during process shutdown: {e}", logging.ERROR)
+            log.error(f"Error during process shutdown: {e}")
 
     @contextmanager
     def start_server(self) -> Iterator["SolidLanguageServer"]:
@@ -467,12 +483,39 @@ class SolidLanguageServer(ABC):
         self.stop()
 
     def _start_server_process(self) -> None:
+        if self.use_rust:
+            # Extract cmd and args from self.server.process_launch_info
+            cmd_info = self.server.process_launch_info.cmd
+            if isinstance(cmd_info, str):
+                cmd_parts = cmd_info.split()
+            else:
+                cmd_parts = cmd_info
+
+            if not cmd_parts:
+                raise ValueError("Command is empty")
+
+            executable = cmd_parts[0]
+            args = cmd_parts[1:]
+
+            log.info(f"Starting Rust-backed LSP: {executable} {args}")
+            self.project_host.start_lsp(executable, args)
+            self.server_started = True
+            return
+
         self.server_started = True
         self._start_server()
 
     @abstractmethod
     def _start_server(self) -> None:
         pass
+
+    def _get_language_id_for_file(self, relative_file_path: str) -> str:
+        """Return the language ID for a file.
+
+        Override in subclasses to return file-specific language IDs.
+        Default implementation returns self.language_id.
+        """
+        return self.language_id
 
     @contextmanager
     def open_file(self, relative_file_path: str) -> Iterator[LSPFileBuffer]:
@@ -482,10 +525,7 @@ class SolidLanguageServer(ABC):
         :param relative_file_path: The relative path of the file to open.
         """
         if not self.server_started:
-            self.logger.log(
-                "open_file called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("open_file called before Language Server started")
             raise SolidLSPException("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
@@ -502,29 +542,36 @@ class SolidLanguageServer(ABC):
             contents = FileUtils.read_file(absolute_file_path, self._encoding)
 
             version = 0
-            self.open_file_buffers[uri] = LSPFileBuffer(uri, contents, version, self.language_id, 1)
+            language_id = self._get_language_id_for_file(relative_file_path)
+            self.open_file_buffers[uri] = LSPFileBuffer(uri, contents, version, language_id, 1)
 
-            self.server.notify.did_open_text_document(
-                {
-                    LSPConstants.TEXT_DOCUMENT: {  # type: ignore
-                        LSPConstants.URI: uri,
-                        LSPConstants.LANGUAGE_ID: self.language_id,
-                        LSPConstants.VERSION: 0,
-                        LSPConstants.TEXT: contents,
+            if self.use_rust:
+                self.project_host.did_open(relative_file_path, contents, language_id)
+            else:
+                self.server.notify.did_open_text_document(
+                    {
+                        LSPConstants.TEXT_DOCUMENT: {  # type: ignore
+                            LSPConstants.URI: uri,
+                            LSPConstants.LANGUAGE_ID: language_id,
+                            LSPConstants.VERSION: 0,
+                            LSPConstants.TEXT: contents,
+                        }
                     }
-                }
-            )
+                )
             yield self.open_file_buffers[uri]
             self.open_file_buffers[uri].ref_count -= 1
 
         if self.open_file_buffers[uri].ref_count == 0:
-            self.server.notify.did_close_text_document(
-                {
-                    LSPConstants.TEXT_DOCUMENT: {  # type: ignore
-                        LSPConstants.URI: uri,
+            if self.use_rust:
+                self.project_host.did_close(relative_file_path)
+            else:
+                self.server.notify.did_close_text_document(
+                    {
+                        LSPConstants.TEXT_DOCUMENT: {  # type: ignore
+                            LSPConstants.URI: uri,
+                        }
                     }
-                }
-            )
+                )
             del self.open_file_buffers[uri]
 
     @contextmanager
@@ -552,10 +599,7 @@ class SolidLanguageServer(ABC):
         :param text_to_be_inserted: The text to insert.
         """
         if not self.server_started:
-            self.logger.log(
-                "insert_text_at_position called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("insert_text_at_position called before Language Server started")
             raise SolidLSPException("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
@@ -569,23 +613,27 @@ class SolidLanguageServer(ABC):
 
         new_contents, new_l, new_c = TextUtils.insert_text_at_position(file_buffer.contents, line, column, text_to_be_inserted)
         file_buffer.contents = new_contents
-        self.server.notify.did_change_text_document(
-            {
-                LSPConstants.TEXT_DOCUMENT: {  # type: ignore
-                    LSPConstants.VERSION: file_buffer.version,
-                    LSPConstants.URI: file_buffer.uri,
-                },
-                LSPConstants.CONTENT_CHANGES: [
-                    {
-                        LSPConstants.RANGE: {
-                            "start": {"line": line, "character": column},
-                            "end": {"line": line, "character": column},
-                        },
-                        "text": text_to_be_inserted,
-                    }
-                ],
-            }
-        )
+
+        if self.use_rust:
+            self.project_host.did_change(relative_file_path, new_contents, file_buffer.version)
+        else:
+            self.server.notify.did_change_text_document(
+                {
+                    LSPConstants.TEXT_DOCUMENT: {  # type: ignore
+                        LSPConstants.VERSION: file_buffer.version,
+                        LSPConstants.URI: file_buffer.uri,
+                    },
+                    LSPConstants.CONTENT_CHANGES: [
+                        {
+                            LSPConstants.RANGE: {
+                                "start": {"line": line, "character": column},
+                                "end": {"line": line, "character": column},
+                            },
+                            "text": text_to_be_inserted,
+                        }
+                    ],
+                }
+            )
         return ls_types.Position(line=new_l, character=new_c)
 
     def delete_text_between_positions(
@@ -598,10 +646,7 @@ class SolidLanguageServer(ABC):
         Delete text between the given start and end positions in the given file and return the deleted text.
         """
         if not self.server_started:
-            self.logger.log(
-                "insert_text_at_position called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("insert_text_at_position called before Language Server started")
             raise SolidLSPException("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
@@ -616,19 +661,39 @@ class SolidLanguageServer(ABC):
             file_buffer.contents, start_line=start["line"], start_col=start["character"], end_line=end["line"], end_col=end["character"]
         )
         file_buffer.contents = new_contents
-        self.server.notify.did_change_text_document(
-            {
-                LSPConstants.TEXT_DOCUMENT: {  # type: ignore
-                    LSPConstants.VERSION: file_buffer.version,
-                    LSPConstants.URI: file_buffer.uri,
-                },
-                LSPConstants.CONTENT_CHANGES: [{LSPConstants.RANGE: {"start": start, "end": end}, "text": ""}],
-            }
-        )
+
+        if self.use_rust:
+            self.project_host.did_change(relative_file_path, new_contents, file_buffer.version)
+        else:
+            self.server.notify.did_change_text_document(
+                {
+                    LSPConstants.TEXT_DOCUMENT: {  # type: ignore
+                        LSPConstants.VERSION: file_buffer.version,
+                        LSPConstants.URI: file_buffer.uri,
+                    },
+                    LSPConstants.CONTENT_CHANGES: [{LSPConstants.RANGE: {"start": start, "end": end}, "text": ""}],
+                }
+            )
         return deleted_text
 
     def _send_definition_request(self, definition_params: DefinitionParams) -> Definition | list[LocationLink] | None:
         return self.server.send.definition(definition_params)
+
+    def _convert_rust_location(self, loc: dict) -> ls_types.Location:
+        uri = loc["uri"]
+        r = loc["range"]
+        # rust range: {start: (line, col), end: (line, col)}
+        start = {"line": r["start"][0], "character": r["start"][1]}
+        end = {"line": r["end"][0], "character": r["end"][1]}
+        range_dict = {"start": start, "end": end}
+
+        abs_path = PathUtils.uri_to_path(uri)
+        try:
+            rel_path = PathUtils.get_relative_path(abs_path, self.repository_root_path)
+        except Exception:
+            rel_path = str(abs_path)
+
+        return ls_types.Location(uri=uri, range=range_dict, absolutePath=abs_path, relativePath=rel_path)  # type: ignore
 
     def request_definition(self, relative_file_path: str, line: int, column: int) -> list[ls_types.Location]:
         """
@@ -639,14 +704,16 @@ class SolidLanguageServer(ABC):
         :param line: The line number of the symbol
         :param column: The column number of the symbol
 
-        :return List[multilspy_types.Location]: A list of locations where the symbol is defined
+        :return: the list of locations where the symbol is defined
         """
         if not self.server_started:
-            self.logger.log(
-                "request_definition called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("request_definition called before language server started")
             raise SolidLSPException("Language Server not started")
+
+        if self.use_rust:
+            # Use Rust implementation
+            definitions = self.project_host.definition(relative_file_path, line, column)
+            return [self._convert_rust_location(d) for d in definitions]
 
         if not self._has_waited_for_cross_file_references:
             # Some LS require waiting for a while before they can return cross-file definitions.
@@ -703,10 +770,7 @@ class SolidLanguageServer(ABC):
         elif response is None:
             # Some language servers return None when they cannot find a definition
             # This is expected for certain symbol types like generics or types with incomplete information
-            self.logger.log(
-                f"Language server returned None for definition request at {relative_file_path}:{line}:{column}",
-                logging.WARNING,
-            )
+            log.warning(f"Language server returned None for definition request at {relative_file_path}:{line}:{column}")
         else:
             assert False, f"Unexpected response from Language Server: {response}"
 
@@ -735,11 +799,20 @@ class SolidLanguageServer(ABC):
         :return: A list of locations where the symbol is referenced (excluding ignored directories)
         """
         if not self.server_started:
-            self.logger.log(
-                "request_references called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("request_references called before Language Server started")
             raise SolidLSPException("Language Server not started")
+
+        if self.use_rust:
+            references = self.project_host.references(relative_file_path, line, column, False)
+            ret = []
+            for ref in references:
+                loc = self._convert_rust_location(ref)
+                if not Path(loc["absolutePath"]).is_relative_to(self.repository_root_path):
+                    continue
+                if self.is_ignored_path(loc["relativePath"]):
+                    continue
+                ret.append(loc)
+            return ret
 
         if not self._has_waited_for_cross_file_references:
             # Some LS require waiting for a while before they can return cross-file references.
@@ -770,16 +843,15 @@ class SolidLanguageServer(ABC):
 
             abs_path = PathUtils.uri_to_path(item[LSPConstants.URI])  # type: ignore
             if not Path(abs_path).is_relative_to(self.repository_root_path):
-                self.logger.log(
+                log.warning(
                     "Found a reference in a path outside the repository, probably the LS is parsing things in installed packages or in the standardlib! "
-                    f"Path: {abs_path}. This is a bug but we currently simply skip these references.",
-                    logging.WARNING,
+                    f"Path: {abs_path}. This is a bug but we currently simply skip these references."
                 )
                 continue
 
             rel_path = Path(abs_path).relative_to(self.repository_root_path)
             if self.is_ignored_path(str(rel_path)):
-                self.logger.log(f"Ignoring reference in {rel_path} since it should be ignored", logging.DEBUG)
+                log.debug("Ignoring reference in %s since it should be ignored", rel_path)
                 continue
 
             new_item: dict = {}
@@ -800,11 +872,15 @@ class SolidLanguageServer(ABC):
         :return: A list of diagnostics for the file
         """
         if not self.server_started:
-            self.logger.log(
-                "request_text_document_diagnostics called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("request_text_document_diagnostics called before Language Server started")
             raise SolidLSPException("Language Server not started")
+
+        if self.use_rust:
+            # Diagnostics are usually notifications in standard LSP (textDocument/publishDiagnostics)
+            # Pull-based diagnostics (textDocument/diagnostic) are newer (LSP 3.17).
+            # Rust ProjectHost does not expose diagnostic request yet.
+            # Assuming not supported or unimplemented.
+            return []
 
         with self.open_file(relative_file_path):
             response = self.server.send.text_document_diagnostic(
@@ -820,7 +896,7 @@ class SolidLanguageServer(ABC):
 
         assert isinstance(response, dict), f"Unexpected response from Language Server (expected list, got {type(response)}): {response}"
         ret: list[ls_types.Diagnostic] = []
-        for item in response["items"]:  # type: ignore
+        for item in response["items"]:
             new_item: ls_types.Diagnostic = {
                 "uri": pathlib.Path(str(PurePath(self.repository_root_path, relative_file_path))).as_uri(),
                 "severity": item["severity"],
@@ -875,8 +951,12 @@ class SolidLanguageServer(ABC):
         :param line: The line number of the symbol
         :param column: The column number of the symbol
 
-        :return List[multilspy_types.CompletionItem]: A list of completions
+        :return: A list of completions
         """
+        if self.use_rust:
+            # Rust ProjectHost doesn't implement completion yet.
+            return []
+
         with self.open_file(relative_file_path):
             open_file_buffer = self.open_file_buffers[pathlib.Path(os.path.join(self.repository_root_path, relative_file_path)).as_uri()]
             completion_params: LSPTypes.CompletionParams = {
@@ -983,7 +1063,18 @@ class SolidLanguageServer(ABC):
                 return response
 
             # no cached result, query language server
-            self.logger.log(f"Requesting document symbols for {relative_file_path} from the Language Server", logging.DEBUG)
+            log.debug(f"Requesting document symbols for {relative_file_path} from the Language Server")
+
+            if self.use_rust:
+                try:
+                    rust_symbols = self.project_host.get_document_symbols(relative_file_path)
+                    # Rust returns UnifiedSymbolInformation-compatible structure (hierarchical)
+                    # We cast it to match the expected return type (which is flexible)
+                    return cast(list[DocumentSymbol], rust_symbols)
+                except Exception as e:
+                    log.error(f"Rust get_document_symbols failed: {e}")
+                    return None
+
             response = self.server.send.document_symbol(
                 {"textDocument": {"uri": pathlib.Path(os.path.join(self.repository_root_path, relative_file_path)).as_uri()}}
             )
@@ -1346,6 +1437,12 @@ class SolidLanguageServer(ABC):
 
         :return None
         """
+        if self.use_rust:
+            content = self.project_host.hover(relative_file_path, line, column)
+            if content is None:
+                return None
+            return ls_types.Hover(contents=content)
+
         with self.open_file(relative_file_path):
             response = self.server.send.hover(
                 {
@@ -1420,10 +1517,7 @@ class SolidLanguageServer(ABC):
         :return: List of objects containing the symbol and the location of the reference.
         """
         if not self.server_started:
-            self.logger.log(
-                "request_referencing_symbols called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("request_referencing_symbols called before Language Server started")
             raise SolidLSPException("Language Server not started")
 
         # First, get all references to the symbol
@@ -1470,10 +1564,7 @@ class SolidLanguageServer(ABC):
 
                 # We failed retrieving the symbol, falling back to creating a file symbol
                 if containing_symbol is None and include_file_symbols:
-                    self.logger.log(
-                        f"Could not find containing symbol for {ref_path}:{ref_line}:{ref_col}. Returning file symbol instead",
-                        logging.WARNING,
-                    )
+                    log.warning(f"Could not find containing symbol for {ref_path}:{ref_line}:{ref_col}. Returning file symbol instead")
                     fileRange = self._get_range_from_file_content(file_data.contents)
                     location = ls_types.Location(
                         uri=str(pathlib.Path(os.path.join(self.repository_root_path, ref_path)).as_uri()),
@@ -1513,7 +1604,7 @@ class SolidLanguageServer(ABC):
                     if include_self:
                         result.append(ReferenceInSymbol(symbol=containing_symbol, line=ref_line, character=ref_col))
                         continue
-                    self.logger.log(f"Found self-reference for {incoming_symbol['name']}, skipping it since {include_self=}", logging.DEBUG)
+                    log.debug(f"Found self-reference for {incoming_symbol['name']}, skipping it since {include_self=}")
                     continue
 
                 # checking whether reference is an import
@@ -1526,10 +1617,9 @@ class SolidLanguageServer(ABC):
                     and containing_symbol["name"] == incoming_symbol["name"]
                     and containing_symbol["kind"] == incoming_symbol["kind"]
                 ):
-                    self.logger.log(
+                    log.debug(
                         f"Found import of referenced symbol {incoming_symbol['name']}"
-                        f"in {containing_symbol['location']['relativePath']}, skipping",
-                        logging.DEBUG,
+                        f"in {containing_symbol['location']['relativePath']}, skipping"
                     )
                     continue
 
@@ -1576,10 +1666,7 @@ class SolidLanguageServer(ABC):
             absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
             content = FileUtils.read_file(absolute_file_path, self._encoding)
             if content.split("\n")[line].strip() == "":
-                self.logger.log(
-                    f"Passing empty lines to request_container_symbol is currently not supported, {relative_file_path=}, {line=}",
-                    logging.ERROR,
-                )
+                log.error(f"Passing empty lines to request_container_symbol is currently not supported, {relative_file_path=}, {line=}")
                 return None
 
         document_symbols = self.request_document_symbols(relative_file_path)
@@ -1673,6 +1760,23 @@ class SolidLanguageServer(ABC):
             include_body=include_body,
         )
 
+    def _get_preferred_definition(self, definitions: list[ls_types.Location]) -> ls_types.Location:
+        """
+        Select the preferred definition from a list of definitions.
+
+        When multiple definitions are returned (e.g., both source and type definitions),
+        this method determines which one to use. The base implementation simply returns
+        the first definition.
+
+        Subclasses can override this method to implement language-specific preferences.
+        For example, TypeScript/Vue servers may prefer source files over .d.ts type
+        definition files.
+
+        :param definitions: A non-empty list of definition locations.
+        :return: The preferred definition location.
+        """
+        return definitions[0]
+
     def request_defining_symbol(
         self,
         relative_file_path: str,
@@ -1693,10 +1797,7 @@ class SolidLanguageServer(ABC):
         :return: The symbol information for the definition, or None if not found.
         """
         if not self.server_started:
-            self.logger.log(
-                "request_defining_symbol called before Language Server started",
-                logging.ERROR,
-            )
+            log.error("request_defining_symbol called before language server started")
             raise SolidLSPException("Language Server not started")
 
         # Get the definition location(s)
@@ -1704,8 +1805,8 @@ class SolidLanguageServer(ABC):
         if not definitions:
             return None
 
-        # Use the first definition location
-        definition = definitions[0]
+        # Select the preferred definition (subclasses can override _get_preferred_definition)
+        definition = self._get_preferred_definition(definitions)
         def_path = definition["relativePath"]
         assert def_path is not None
         def_line = definition["range"]["start"]["line"]
@@ -1740,6 +1841,9 @@ class SolidLanguageServer(ABC):
     def _load_raw_document_symbols_cache(self) -> None:
         cache_file = self.cache_dir / self.RAW_DOCUMENT_SYMBOL_CACHE_FILENAME
 
+        if not self._load_cache_enabled:
+            return
+
         if not cache_file.exists():
             # check for legacy cache to load to migrate
             legacy_cache_file = self.cache_dir / self.RAW_DOCUMENT_SYMBOL_CACHE_FILENAME_LEGACY_FALLBACK
@@ -1773,9 +1877,7 @@ class SolidLanguageServer(ABC):
                 saved_cache = load_cache(str(cache_file), self._raw_document_symbols_cache_version())
                 if saved_cache is not None:
                     self._raw_document_symbols_cache = saved_cache
-                    self.logger.log(
-                        f"Loaded {len(self._raw_document_symbols_cache)} entries from raw document symbols cache.", logging.INFO
-                    )
+                    log.info(f"Loaded {len(self._raw_document_symbols_cache)} entries from raw document symbols cache.")
             except Exception as e:
                 # cache can become corrupt, so just skip loading it
                 log.warning(
@@ -1804,13 +1906,17 @@ class SolidLanguageServer(ABC):
 
     def _load_document_symbols_cache(self) -> None:
         cache_file = self.cache_dir / self.DOCUMENT_SYMBOL_CACHE_FILENAME
+
+        if not self._load_cache_enabled:
+            return
+
         if cache_file.exists():
             log.info("Loading document symbols cache from %s", cache_file)
             try:
                 saved_cache = load_cache(str(cache_file), self.DOCUMENT_SYMBOL_CACHE_VERSION)
                 if saved_cache is not None:
                     self._document_symbols_cache = saved_cache
-                    self.logger.log(f"Loaded {len(self._document_symbols_cache)} entries from document symbols cache.", logging.INFO)
+                    log.info(f"Loaded {len(self._document_symbols_cache)} entries from document symbols cache.")
             except Exception as e:
                 # cache can become corrupt, so just skip loading it
                 log.warning(
@@ -1822,6 +1928,13 @@ class SolidLanguageServer(ABC):
     def save_cache(self) -> None:
         self._save_raw_document_symbols_cache()
         self._save_document_symbols_cache()
+
+    @property
+    def _load_cache_enabled(self) -> bool:
+        # Disable loading cache if we are using Rust, because Python cache might be stale/incompatible
+        # or we want to force re-indexing (although Rust doesn't use this cache, document_symbols might still rely on it if we fall back)
+        # But generally safe to keep loading.
+        return True
 
     def request_workspace_symbol(self, query: str) -> list[ls_types.UnifiedSymbolInformation] | None:
         """
@@ -1867,6 +1980,9 @@ class SolidLanguageServer(ABC):
         :param new_name: The new name for the symbol
         :return: A WorkspaceEdit containing the changes needed to rename the symbol, or None if rename is not supported
         """
+        if self.use_rust:
+            return self.project_host.rename(relative_file_path, line, column, new_name)
+
         params = RenameParams(
             textDocument=ls_types.TextDocumentIdentifier(
                 uri=pathlib.Path(os.path.join(self.repository_root_path, relative_file_path)).as_uri()
@@ -1886,7 +2002,7 @@ class SolidLanguageServer(ABC):
         """
         with self.open_file(relative_path):
             # Sort edits by position (latest first) to avoid position shifts
-            sorted_edits = sorted(edits, key=lambda e: (e["range"]["start"]["line"], e["range"]["start"]["character"]), reverse=True)
+            sorted_edits = sorted(edits, key=lambda e: (e["range"]["start"]["line"], e["range"]["start"]["character"])[::-1])
 
             for edit in sorted_edits:
                 start_pos = ls_types.Position(line=edit["range"]["start"]["line"], character=edit["range"]["start"]["character"])
@@ -1902,10 +2018,7 @@ class SolidLanguageServer(ABC):
 
         :return: self for method chaining
         """
-        self.logger.log(
-            f"Starting language server with language {self.language_server.language} for {self.language_server.repository_root_path}",
-            logging.INFO,
-        )
+        log.info(f"Starting language server with language {self.language_server.language} for {self.language_server.repository_root_path}")
         self._start_server_process()
         return self
 
@@ -1919,11 +2032,22 @@ class SolidLanguageServer(ABC):
         try:
             self._shutdown(timeout=shutdown_timeout)
         except Exception as e:
-            self.logger.log(f"Exception while shutting down language server: {e}", logging.WARNING)
+            log.warning(f"Exception while shutting down language server: {e}")
 
     @property
     def language_server(self) -> Self:
         return self
 
+    @property
+    def handler(self) -> SolidLanguageServerHandler:
+        """Access the underlying language server handler.
+
+        Useful for advanced operations like sending custom commands
+        or registering notification handlers.
+        """
+        return self.server
+
     def is_running(self) -> bool:
+        if self.use_rust:
+            return self.server_started  # Rust process is managed by ProjectHost, assume running if started
         return self.server.is_running()

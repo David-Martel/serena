@@ -1,0 +1,122 @@
+[package]
+name = "serena_core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Core library for Serena semantic coding agent - pure Rust MCP server"
+
+[lib]
+name = "serena_core"
+crate-type = ["rlib"]
+
+# Binary archived - MCP server now in crates/serena-mcp
+# [[bin]]
+# name = "serena-mcp-server"
+# path = "src/bin/mcp_server.rs"
+
+[dependencies]
+
+# MCP Protocol SDK (from rust-mcp-stack, production-ready)
+rust-mcp-sdk = { version = "0.7", default-features = false, features = [
+    "server",
+    "macros",
+    "stdio",
+    "2025_06_18"
+] }
+async-trait = "0.1"
+
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+futures = "0.3"
+
+# LSP and JSON-RPC
+lsp-types = "0.95"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Database for memory persistence
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Schema generation
+schemars = "0.8"
+
+# Directory/config paths
+directories = "5.0"
+
+# Diff for edit operations
+similar = "2.7"
+
+# Glob patterns
+glob = "0.3"
+
+# Chrono for timestamps
+chrono = "0.4"
+
+# Web Server
+axum = "0.7"
+tower = { version = "0.4", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }
+
+# Networking & Downloading
+reqwest = { version = "0.11", features = ["json", "stream", "multipart"] }
+
+# File System & Archives
+ignore = "0.4"
+walkdir = "2.4"
+zip = "0.6"
+tar = "0.4"
+flate2 = "1.0"
+
+# Text Processing & Search
+regex = "1.11"
+rayon = "1.10"
+
+# Error Handling & Logging
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Data Structures
+petgraph = "0.6"
+dashmap = "5.5"  # Concurrent HashMap
+parking_lot = "0.12" # Better Mutex
+
+[features]
+default = []
+test-utils = []  # Enable test utilities for external use
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"
+mockall = "0.12"
+proptest = "1.4"
+rstest = "0.18"
+test-case = "3.3"
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+[[bench]]
+name = "mcp_benchmarks"
+harness = false
+
+[[bench]]
+name = "lsp_benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+debug = 1  # Keep some debug info for flamegraphs

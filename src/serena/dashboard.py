@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sensai.util import logging
 
 from serena.analytics import ToolUsageStats
+from serena.config.serena_config import LanguageBackend
 from serena.constants import SERENA_DASHBOARD_DIR
 from serena.task_executor import TaskExecutor
 from serena.util.logging import MemoryLogHandler
@@ -444,7 +445,7 @@ class SerenaDashboardAPI:
             available_modes=available_modes,
             available_contexts=available_contexts,
             available_memories=available_memories,
-            jetbrains_mode=self._agent.serena_config.jetbrains,
+            jetbrains_mode=self._agent.serena_config.language_backend == LanguageBackend.JETBRAINS,
             languages=languages,
             encoding=encoding,
         )
@@ -586,7 +587,7 @@ class SerenaDashboardAPI:
         self._app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
         return port
 
-    def run_in_thread(self) -> tuple[threading.Thread, int]:
+    def run_in_thread(self, host: str) -> tuple[threading.Thread, int]:
         """Run the dashboard in a background thread.
 
         If a dashboard is already running on the preferred port, reuse it
@@ -604,6 +605,7 @@ class SerenaDashboardAPI:
             return thread, preferred_port
 
         port = self._find_first_free_port(preferred_port)
-        thread = threading.Thread(target=lambda: self.run(port=port), daemon=True)
+        log.info("Starting dashboard (listen_address=%s, port=%d)", host, port)
+        thread = threading.Thread(target=lambda: self.run(host=host, port=port), daemon=True)
         thread.start()
         return thread, port

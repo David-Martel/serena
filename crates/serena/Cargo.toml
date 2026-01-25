@@ -1,0 +1,58 @@
+[package]
+name = "serena"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Serena AI coding assistant - main binary"
+
+[lib]
+name = "serena"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serena"
+path = "src/main.rs"
+
+[dependencies]
+# Serena crates
+serena-core = { path = "../serena-core" }
+serena-config = { path = "../serena-config" }
+serena-tools = { path = "../serena-tools" }
+serena-mcp = { path = "../serena-mcp" }
+serena-lsp = { path = "../serena-lsp" }
+serena-web = { path = "../serena-web" }
+serena-memory = { path = "../serena-memory" }
+serena-symbol = { path = "../serena-symbol" }
+# serena-cli = { path = "../serena-cli" }
+
+# Async runtime
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+futures = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"] }
+
+# CLI
+clap = { workspace = true, features = ["derive", "env"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# MCP Protocol
+rmcp = { workspace = true }
+
+# Utilities
+directories = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"

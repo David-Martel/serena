@@ -741,6 +741,139 @@ body {
     line-height: 1;
 }
 
+/* =============================================================================
+   Runtime Badge - Rust/Python Backend Indicator
+   Industrial precision style with Rust-specific identity
+   ============================================================================= */
+
+.runtime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    border: 1.5px solid transparent;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    flex-shrink: 0;
+    margin: 0 auto;
+}
+
+.runtime-badge__icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
+.runtime-badge__text {
+    white-space: nowrap;
+}
+
+/* Connecting State - Subtle pulse animation */
+.runtime-badge--connecting {
+    border-color: var(--border-color);
+    animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+/* Rust Active State - Orange accent (Rust signature color) */
+.runtime-badge--rust {
+    border-color: #F74C00;
+    background: linear-gradient(135deg,
+        rgba(247, 76, 0, 0.08) 0%,
+        rgba(247, 76, 0, 0.03) 100%);
+    color: var(--text-primary);
+    animation: badge-connected 0.5s ease-out;
+}
+
+.runtime-badge--rust .runtime-badge__icon {
+    color: #F74C00;
+}
+
+@keyframes badge-connected {
+    0% {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    60% {
+        transform: scale(1.03);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Python Fallback State - Python blue accent */
+.runtime-badge--python {
+    border-color: #3776AB;
+    background: linear-gradient(135deg,
+        rgba(55, 118, 171, 0.08) 0%,
+        rgba(55, 118, 171, 0.03) 100%);
+    color: var(--text-primary);
+}
+
+.runtime-badge--python .runtime-badge__icon {
+    color: #3776AB;
+}
+
+/* Error/Offline State - Red accent */
+.runtime-badge--error {
+    border-color: #DC3545;
+    background: linear-gradient(135deg,
+        rgba(220, 53, 69, 0.08) 0%,
+        rgba(220, 53, 69, 0.03) 100%);
+    color: var(--text-secondary);
+}
+
+.runtime-badge--error .runtime-badge__icon {
+    color: #DC3545;
+}
+
+/* Hover effect for interactive feedback */
+.runtime-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Dark theme enhanced visibility */
+[data-theme="dark"] .runtime-badge--rust {
+    background: linear-gradient(135deg,
+        rgba(247, 76, 0, 0.15) 0%,
+        rgba(247, 76, 0, 0.06) 100%);
+    box-shadow: 0 0 12px rgba(247, 76, 0, 0.15);
+}
+
+[data-theme="dark"] .runtime-badge--python {
+    background: linear-gradient(135deg,
+        rgba(55, 118, 171, 0.15) 0%,
+        rgba(55, 118, 171, 0.06) 100%);
+    box-shadow: 0 0 12px rgba(55, 118, 171, 0.15);
+}
+
+[data-theme="dark"] .runtime-badge--error {
+    background: linear-gradient(135deg,
+        rgba(220, 53, 69, 0.15) 0%,
+        rgba(220, 53, 69, 0.06) 100%);
+}
+
+[data-theme="dark"] .runtime-badge:hover {
+    box-shadow: 0 3px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* =============================================================================
+   End Runtime Badge
+   ============================================================================= */
+
 .log-debug {
     color: var(--log-debug);
 }
@@ -1174,3 +1307,109 @@ body {
 .copy-logs-btn:hover .copy-logs-text {
     display: inline;
 }
+
+/* =============================================================================
+   Connection Banner - Server Connection Status Indicator
+   Shows warnings/errors when server connection is lost with reconnection UI
+   ============================================================================= */
+
+.connection-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    font-size: 14px;
+    font-weight: 500;
+    animation: banner-slide-down 0.3s ease-out;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes banner-slide-down {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.connection-banner-warning {
+    background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%);
+    color: #000000;
+    border-bottom: 2px solid #E67E00;
+}
+
+.connection-banner-error {
+    background: linear-gradient(135deg, #DC3545 0%, #C82333 100%);
+    color: #FFFFFF;
+    border-bottom: 2px solid #A71D2A;
+}
+
+.connection-banner .banner-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.connection-banner .banner-message {
+    flex: 1;
+    text-align: center;
+}
+
+.connection-banner .retry-btn,
+.connection-banner .reload-btn {
+    padding: 6px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.connection-banner-warning .retry-btn {
+    background: rgba(0, 0, 0, 0.2);
+    color: #000000;
+}
+
+.connection-banner-warning .retry-btn:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.connection-banner-error .retry-btn,
+.connection-banner-error .reload-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: #FFFFFF;
+}
+
+.connection-banner-error .retry-btn:hover,
+.connection-banner-error .reload-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.connection-banner .retry-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Dark theme adjustments for connection banner */
+[data-theme="dark"] .connection-banner-warning {
+    background: linear-gradient(135deg, #FF9500 0%, #FF7700 100%);
+}
+
+[data-theme="dark"] .connection-banner-error {
+    background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%);
+}
+
+/* =============================================================================
+   End Connection Banner
+   ============================================================================= */

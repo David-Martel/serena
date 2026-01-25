@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Post-checkout hook: Cleans up Windows 'nul' device files after branch switches.
+#
+# Some branches may contain commits that accidentally created 'nul' files.
+# This hook ensures they're cleaned up after checkout.
+
+# Skip if this is a file checkout (not a branch checkout)
+# $3 is the checkout type flag: 1 = branch checkout, 0 = file checkout
+if [ "$3" != "1" ]; then
+    exit 0
+fi
+
+# Get repository root
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+
+if [ -z "$REPO_ROOT" ]; then
+    exit 0
+fi
+
+# Find and remove nul files (silently)
+find "$REPO_ROOT" -name 'nul' -type f -delete 2>/dev/null
+
+exit 0

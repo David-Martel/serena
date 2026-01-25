@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -154,9 +153,7 @@ def run_pattern_tool_counts(agent: SerenaAgent, patterns: list[str]) -> dict[str
     return counts
 
 
-def run_symbol_overview_stats(
-    agent: SerenaAgent, project_root: str, max_files: int = 50
-) -> dict[str, Any]:
+def run_symbol_overview_stats(agent: SerenaAgent, project_root: str, max_files: int = 50) -> dict[str, Any]:
     """Collect symbol statistics for the largest Rust source files.
 
     For the top-N .rs files by size, this uses GetSymbolsOverviewTool to
@@ -225,16 +222,12 @@ def run_symbol_overview_stats(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Benchmark Serena PyO3 backends and tool usage on mistral.rs."
-    )
+    parser = argparse.ArgumentParser(description="Benchmark Serena PyO3 backends and tool usage on mistral.rs.")
     parser.add_argument(
         "--project",
         type=str,
         default=DEFAULT_PROJECT,
-        help=(
-            "Path to mistral.rs project root or any path within it (Cargo.toml, subdir, etc.)."
-        ),
+        help=("Path to mistral.rs project root or any path within it (Cargo.toml, subdir, etc.)."),
     )
     parser.add_argument("--runs", type=int, default=5, help="Number of runs per backend.")
     parser.add_argument(
