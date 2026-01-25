@@ -34,55 +34,79 @@ test.describe('Server Health @integration', () => {
 
 test.describe('SSE Connection @integration', () => {
   test('should establish SSE connection', async ({ page }) => {
-    // Track SSE connection
-    let sseConnected = false;
-
-    page.on('response', (response) => {
-      if (response.url().includes('/events') || response.url().includes('/sse')) {
-        if (response.headers()['content-type']?.includes('text/event-stream')) {
-          sseConnected = true;
-        }
-      }
-    });
+    // Use waitForResponse to avoid race condition
+    const ssePromise = page.waitForResponse(
+      (response) =>
+        (response.url().includes('/events') || response.url().includes('/sse')) &&
+        response.headers()['content-type']?.includes('text/event-stream'),
+      { timeout: 10000 }
+    );
 
     await page.goto('/');
-    await page.waitForTimeout(5000);
 
-    expect(sseConnected).toBeTruthy();
+    const sseResponse = await ssePromise;
+    expect(sseResponse.status()).toBe(200);
+    expect(sseResponse.headers()['content-type']).toContain('text/event-stream');
   });
 
   test('should receive tool list via SSE', async ({ page }) => {
-    const receivedTools: string[] = [];
-
-    // Monitor network for SSE events
-    page.on('response', async (response) => {
-      if (response.headers()['content-type']?.includes('text/event-stream')) {
-        // SSE connection established
-      }
-    });
+    // Wait for SSE connection and tools to load
+    const ssePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/events') || response.url().includes('/sse'),
+      { timeout: 10000 }
+    );
 
     await page.goto('/');
+    await ssePromise;
 
-    // Wait for tools to appear in UI
+    // Wait for tools to appear in UI with stronger assertion
     const toolElement = page.locator('.tool-card, [data-tool], .tool-item').first();
-
     await expect(toolElement).toBeVisible({ timeout: 15000 });
+
+    // Verify tool element has meaningful content
+    const toolText = await toolElement.textContent();
+    expect(toolText).toBeTruthy();
+    expect(toolText!.length).toBeGreaterThan(0);
   });
 
   test('should handle SSE reconnection', async ({ page }) => {
+    // Wait for initial SSE connection
+    const initialSSE = page.waitForResponse(
+      (response) =>
+        response.url().includes('/events') || response.url().includes('/sse'),
+      { timeout: 10000 }
+    );
+
     await page.goto('/');
+    await initialSSE;
     await page.waitForLoadState('networkidle');
 
     // Simulate network disconnect
     await page.context().setOffline(true);
+
+    // Wait for disconnect indicator or UI update
     await page.waitForTimeout(2000);
+
+    // Prepare to capture reconnection
+    const reconnectSSE = page.waitForResponse(
+      (response) =>
+        response.url().includes('/events') || response.url().includes('/sse'),
+      { timeout: 15000 }
+    );
 
     // Reconnect
     await page.context().setOffline(false);
-    await page.waitForTimeout(5000);
 
-    // Page should recover
-    await expect(page.locator('body')).toBeVisible();
+    // Wait for SSE to reconnect
+    const reconnected = await reconnectSSE;
+    expect(reconnected.status()).toBe(200);
+
+    // Verify page is functional with content check
+    const body = page.locator('body');
+    await expect(body).toBeVisible();
+    const content = await body.textContent();
+    expect(content!.length).toBeGreaterThan(100);
   });
 });
 
@@ -311,8 +335,9 @@ test.describe('Error Handling @integration', () => {
         params: {
           name: 'search_files',
           arguments: {
+            // Use project root for cross-platform compatibility
             pattern: '**/*',
-            path: 'C:\\',
+            path: '.',
           },
         },
       },
@@ -320,9 +345,13 @@ test.describe('Error Handling @integration', () => {
     });
 
     const elapsed = Date.now() - startTime;
+    const body = await response.json();
 
     // Should complete within reasonable time (timeout or result)
     expect(elapsed).toBeLessThan(30000);
+    // Verify we got a valid response
+    expect(body.jsonrpc).toBe('2.0');
+    expect(body.result !== undefined || body.error !== undefined).toBeTruthy();
   });
 });
 

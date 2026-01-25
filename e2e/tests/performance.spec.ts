@@ -37,7 +37,8 @@ test.describe('Response Latency @performance', () => {
 
     // Calculate statistics
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    const p95 = times.sort((a, b) => a - b)[Math.floor(times.length * 0.95)];
+    const sortedTimes = [...times].sort((a, b) => a - b);
+    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
 
     console.log(`Health check latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -64,7 +65,8 @@ test.describe('Response Latency @performance', () => {
     }
 
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    const p95 = times.sort((a, b) => a - b)[Math.floor(times.length * 0.95)];
+    const sortedTimes = [...times].sort((a, b) => a - b);
+    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
 
     console.log(`tools/list latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -96,7 +98,8 @@ test.describe('Response Latency @performance', () => {
     }
 
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    const p95 = times.sort((a, b) => a - b)[Math.floor(times.length * 0.95)];
+    const sortedTimes = [...times].sort((a, b) => a - b);
+    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
 
     console.log(`Tool call latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -175,7 +178,8 @@ test.describe('Throughput @performance', () => {
 
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const max = Math.max(...times);
-    const p99 = times.sort((a, b) => a - b)[Math.floor(times.length * 0.99)];
+    const sortedTimes = [...times].sort((a, b) => a - b);
+    const p99 = sortedTimes[Math.floor(sortedTimes.length * 0.99)];
 
     console.log(`Under load - Avg: ${avg.toFixed(2)}ms, P99: ${p99.toFixed(2)}ms, Max: ${max.toFixed(2)}ms`);
 
@@ -278,7 +282,13 @@ test.describe('Memory Usage @performance', () => {
     // Baseline memory check
     const initialHealth = await request.get(`${MCP_SERVER_URL}/health`);
     const initialBody = await initialHealth.json();
-    const initialMemory = initialBody.memory_mb || 0;
+    const initialMemory = initialBody.memory_mb;
+
+    // Skip test with clear message if memory metrics unavailable
+    test.skip(
+      initialMemory === undefined,
+      'Server does not expose memory_mb in health endpoint - memory leak test skipped'
+    );
 
     // Make many requests
     for (let i = 0; i < 100; i++) {
@@ -295,15 +305,15 @@ test.describe('Memory Usage @performance', () => {
     // Check memory after requests
     const finalHealth = await request.get(`${MCP_SERVER_URL}/health`);
     const finalBody = await finalHealth.json();
-    const finalMemory = finalBody.memory_mb || 0;
+    const finalMemory = finalBody.memory_mb;
 
-    if (initialMemory > 0 && finalMemory > 0) {
-      const memoryGrowth = finalMemory - initialMemory;
-      console.log(`Memory: ${initialMemory}MB -> ${finalMemory}MB (growth: ${memoryGrowth}MB)`);
+    expect(finalMemory).toBeDefined();
 
-      // Memory should not grow excessively
-      expect(memoryGrowth).toBeLessThan(50); // Less than 50MB growth
-    }
+    const memoryGrowth = finalMemory - initialMemory;
+    console.log(`Memory: ${initialMemory}MB -> ${finalMemory}MB (growth: ${memoryGrowth}MB)`);
+
+    // Memory should not grow excessively
+    expect(memoryGrowth).toBeLessThan(50); // Less than 50MB growth
   });
 
   test('should not leak memory in browser', async ({ page }) => {
@@ -312,10 +322,16 @@ test.describe('Memory Usage @performance', () => {
 
     // Get initial heap size
     const initialHeap = await page.evaluate(() => {
-      // @ts-ignore
+      // @ts-ignore - performance.memory is Chrome-specific
       const memory = performance.memory;
       return memory ? memory.usedJSHeapSize / 1024 / 1024 : null;
     });
+
+    // Skip test with clear message if memory API unavailable (non-Chromium browsers)
+    test.skip(
+      initialHeap === null,
+      'Browser does not support performance.memory API (Chromium-only) - browser memory test skipped'
+    );
 
     // Interact with the page
     for (let i = 0; i < 20; i++) {
@@ -325,18 +341,18 @@ test.describe('Memory Usage @performance', () => {
 
     // Get final heap size
     const finalHeap = await page.evaluate(() => {
-      // @ts-ignore
+      // @ts-ignore - performance.memory is Chrome-specific
       const memory = performance.memory;
       return memory ? memory.usedJSHeapSize / 1024 / 1024 : null;
     });
 
-    if (initialHeap && finalHeap) {
-      const heapGrowth = finalHeap - initialHeap;
-      console.log(`Browser heap: ${initialHeap.toFixed(2)}MB -> ${finalHeap.toFixed(2)}MB (growth: ${heapGrowth.toFixed(2)}MB)`);
+    expect(finalHeap).not.toBeNull();
 
-      // Heap should not grow excessively
-      expect(heapGrowth).toBeLessThan(50);
-    }
+    const heapGrowth = finalHeap! - initialHeap!;
+    console.log(`Browser heap: ${initialHeap!.toFixed(2)}MB -> ${finalHeap!.toFixed(2)}MB (growth: ${heapGrowth.toFixed(2)}MB)`);
+
+    // Heap should not grow excessively
+    expect(heapGrowth).toBeLessThan(50);
   });
 });
 

@@ -1,4 +1,6 @@
-import { test, expect, request, Page } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Stability Tests for Serena MCP Server
@@ -11,6 +13,23 @@ import { test, expect, request, Page } from '@playwright/test';
  */
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000';
+
+// Track test files for cleanup
+const TEST_FILES_TO_CLEANUP: string[] = [];
+
+// Cleanup helper
+async function cleanupTestFiles() {
+  for (const filePath of TEST_FILES_TO_CLEANUP) {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+  TEST_FILES_TO_CLEANUP.length = 0;
+}
 
 test.describe('Long-Running Stability @stability', () => {
   test('should handle sustained request load', async ({ request }) => {
@@ -312,6 +331,9 @@ test.describe('Edge Cases @stability', () => {
   });
 
   test('should handle unicode in content', async ({ request }) => {
+    const testFile = 'test_unicode_temp.txt';
+    TEST_FILES_TO_CLEANUP.push(testFile);
+
     const response = await request.post(`${MCP_SERVER_URL}/rpc`, {
       data: {
         jsonrpc: '2.0',
@@ -320,7 +342,7 @@ test.describe('Edge Cases @stability', () => {
         params: {
           name: 'write_file',
           arguments: {
-            file_path: 'test_unicode_temp.txt',
+            file_path: testFile,
             content: 'Hello 世界 🌍 مرحبا こんにちは',
           },
         },
@@ -332,6 +354,9 @@ test.describe('Edge Cases @stability', () => {
 
     // Should handle unicode properly
     expect(body.result !== undefined || body.error !== undefined).toBeTruthy();
+
+    // Cleanup test file
+    await cleanupTestFiles();
   });
 });
 
