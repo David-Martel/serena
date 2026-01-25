@@ -1,4 +1,4 @@
-import { test, expect, request } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 /**
  * Performance Tests for Serena MCP Server
@@ -11,6 +11,25 @@ import { test, expect, request } from '@playwright/test';
  */
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000';
+
+/**
+ * Calculate percentile using linear interpolation
+ * @param sorted - Pre-sorted array of numbers
+ * @param percentile - Percentile to calculate (0-100)
+ */
+function calculatePercentile(sorted: number[], percentile: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0];
+
+  // Linear interpolation for accurate percentiles
+  const index = (percentile / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const weight = index % 1;
+
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
 
 // Performance thresholds (in milliseconds)
 const THRESHOLDS = {
@@ -38,7 +57,7 @@ test.describe('Response Latency @performance', () => {
     // Calculate statistics
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const sortedTimes = [...times].sort((a, b) => a - b);
-    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
+    const p95 = calculatePercentile(sortedTimes, 95);
 
     console.log(`Health check latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -66,7 +85,7 @@ test.describe('Response Latency @performance', () => {
 
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const sortedTimes = [...times].sort((a, b) => a - b);
-    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
+    const p95 = calculatePercentile(sortedTimes, 95);
 
     console.log(`tools/list latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -99,7 +118,7 @@ test.describe('Response Latency @performance', () => {
 
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const sortedTimes = [...times].sort((a, b) => a - b);
-    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
+    const p95 = calculatePercentile(sortedTimes, 95);
 
     console.log(`Tool call latency - Avg: ${avg.toFixed(2)}ms, P95: ${p95.toFixed(2)}ms`);
 
@@ -176,10 +195,14 @@ test.describe('Throughput @performance', () => {
 
     await Promise.all(requests);
 
+    if (times.length === 0) {
+      throw new Error('All requests failed under load');
+    }
+
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const max = Math.max(...times);
     const sortedTimes = [...times].sort((a, b) => a - b);
-    const p99 = sortedTimes[Math.floor(sortedTimes.length * 0.99)];
+    const p99 = calculatePercentile(sortedTimes, 99);
 
     console.log(`Under load - Avg: ${avg.toFixed(2)}ms, P99: ${p99.toFixed(2)}ms, Max: ${max.toFixed(2)}ms`);
 

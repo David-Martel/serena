@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as path from 'path';
 
 /**
  * Serena E2E Test Configuration
@@ -111,6 +112,7 @@ export default defineConfig({
       url: 'http://localhost:8080',
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
+      cwd: path.resolve(__dirname, '..'),
     },
     {
       // Start the MCP server (web mode for SSE)
@@ -118,7 +120,7 @@ export default defineConfig({
       url: 'http://localhost:3000/health',
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
-      cwd: '..',
+      cwd: path.resolve(__dirname, '..'),
     },
   ],
 });

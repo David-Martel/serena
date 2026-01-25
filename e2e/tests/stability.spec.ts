@@ -37,35 +37,57 @@ test.describe('Long-Running Stability @stability', () => {
     const startTime = Date.now();
     let successCount = 0;
     let failCount = 0;
+    let timeoutCount = 0;
     let requestCount = 0;
 
-    while (Date.now() - startTime < duration) {
+    while (true) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= duration) break;
+
       try {
-        const response = await request.post(`${MCP_SERVER_URL}/rpc`, {
-          data: {
-            jsonrpc: '2.0',
-            id: ++requestCount,
-            method: 'tools/list',
-            params: {},
-          },
-          timeout: 5000,
-        });
+        // Set per-request timeout with Promise.race
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 5000)
+        );
+
+        const response = await Promise.race([
+          request.post(`${MCP_SERVER_URL}/rpc`, {
+            data: {
+              jsonrpc: '2.0',
+              id: ++requestCount,
+              method: 'tools/list',
+              params: {},
+            },
+          }),
+          timeoutPromise,
+        ]);
 
         if (response.ok()) {
           successCount++;
         } else {
           failCount++;
         }
-      } catch {
-        failCount++;
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message === 'timeout') {
+          timeoutCount++;
+        } else {
+          failCount++;
+        }
       }
 
-      // Small delay to not overwhelm
-      await new Promise((r) => setTimeout(r, 100));
+      // Don't exceed duration during delay
+      const remainingTime = duration - (Date.now() - startTime);
+      if (remainingTime > 100) {
+        await new Promise((r) => setTimeout(r, 100));
+      } else if (remainingTime > 0) {
+        await new Promise((r) => setTimeout(r, remainingTime));
+      }
     }
 
-    const successRate = (successCount / requestCount) * 100;
-    console.log(`Sustained load: ${requestCount} requests, ${successRate.toFixed(2)}% success rate`);
+    const successRate = requestCount > 0 ? (successCount / requestCount) * 100 : 0;
+    console.log(`Sustained load:`);
+    console.log(`  - Total: ${requestCount}, Success: ${successCount} (${successRate.toFixed(2)}%)`);
+    console.log(`  - Failed: ${failCount}, Timeouts: ${timeoutCount}`);
 
     expect(successRate).toBeGreaterThan(99);
   });
