@@ -188,7 +188,16 @@ class Dashboard {
         this.pollInterval = null;
         this.configPollInterval = null;
         this.executionsPollInterval = null;
+
+        // Heartbeat tracking with improved resilience
         this.heartbeatFailureCount = 0;
+        this.heartbeatMaxFailures = 5; // Allow 5 failures before showing error
+        this.heartbeatInterval = 5000; // 5 seconds between heartbeats
+        this.heartbeatTimeout = 10000; // 10 second timeout for heartbeat request
+        this.heartbeatIntervalId = null;
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
 
         // jQuery elements
         this.$logContainer = $('#log-container');
@@ -360,9 +369,6 @@ class Dashboard {
         // Initialize theme
         this.initializeTheme();
 
-        // Initialize runtime badge (Rust/Python backend indicator)
-        this.initRuntimeBadge();
-
         // Initialize sponsor rotation
         //this.sponsorRotation = new SponsorRotation();
 
@@ -383,16 +389,6 @@ class Dashboard {
             }
         });
 
-        // Heartbeat configuration - robust settings for production
-        this.heartbeatInterval = 5000;       // 5 seconds between checks
-        this.heartbeatTimeout = 10000;       // 10 second request timeout
-        this.heartbeatMaxFailures = 5;       // 5 failures before showing error
-        this.heartbeatWarningThreshold = 2;  // Show warning after 2 failures
-        this.maxReconnectAttempts = 10;      // Max reconnection attempts
-        this.reconnectAttempts = 0;
-        this.reconnectDelay = 2000;          // Start with 2 second delay
-        this.isReconnecting = false;
-
         // Initialize the application
         this.loadToolNames().then(function () {
             // Start on overview page
@@ -400,163 +396,172 @@ class Dashboard {
             self.startConfigPolling();
             self.startExecutionsPolling();
         });
-        // Initialize heartbeat interval with robust configuration
-        console.log('Heartbeat started with ' + this.heartbeatInterval + 'ms interval');
-        setInterval(this.heartbeat.bind(this), this.heartbeatInterval);
+        // Initialize heartbeat with safer interval (5 seconds instead of 250ms)
+        this.startHeartbeat();
+    }
+
+    startHeartbeat() {
+        // Start the heartbeat interval
+        this.heartbeatIntervalId = setInterval(this.heartbeat.bind(this), this.heartbeatInterval);
+        console.log(`Heartbeat started with ${this.heartbeatInterval}ms interval`);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatIntervalId) {
+            clearInterval(this.heartbeatIntervalId);
+            this.heartbeatIntervalId = null;
+            console.log('Heartbeat stopped');
+        }
     }
 
     heartbeat() {
         let self = this;
+
+        // Skip heartbeat if already reconnecting
+        if (self.isReconnecting) {
+            console.log('Skipping heartbeat - reconnection in progress');
+            return;
+        }
+
         $.ajax({
             url: '/heartbeat',
             type: 'GET',
-            timeout: self.heartbeatTimeout,
+            timeout: self.heartbeatTimeout, // 10 second timeout
             success: function (response) {
-                // Connection restored
+                // Heartbeat succeeded - reset all failure tracking
                 if (self.heartbeatFailureCount > 0) {
-                    console.log('Connection restored after ' + self.heartbeatFailureCount + ' failures');
-                    self.hideConnectionBanner();
+                    console.log('Heartbeat recovered - connection restored');
+                    self.hideConnectionError();
                 }
                 self.heartbeatFailureCount = 0;
                 self.reconnectAttempts = 0;
-                self.reconnectDelay = 2000;
                 self.isReconnecting = false;
             },
             error: function (xhr, status, error) {
                 self.heartbeatFailureCount++;
-                console.warn('Heartbeat failure #' + self.heartbeatFailureCount + ': ' + error);
+                console.error('Heartbeat failure #' + self.heartbeatFailureCount + ': ' + status + ' - ' + error);
 
-                // Show warning banner after warning threshold
-                if (self.heartbeatFailureCount >= self.heartbeatWarningThreshold &&
-                    self.heartbeatFailureCount < self.heartbeatMaxFailures) {
-                    self.showConnectionBanner('warning',
-                        'Connection unstable - ' + self.heartbeatFailureCount + ' failed heartbeats');
+                // Show warning after 2 failures
+                if (self.heartbeatFailureCount === 2) {
+                    self.showConnectionWarning();
                 }
 
-                // Show error banner and start reconnection after max failures
+                // Attempt reconnection after threshold
                 if (self.heartbeatFailureCount >= self.heartbeatMaxFailures) {
-                    if (!self.isReconnecting) {
-                        self.isReconnecting = true;
-                        self.showConnectionBanner('error',
-                            'Server connection lost. Attempting to reconnect...');
-                        self.attemptReconnect();
-                    }
+                    console.error('Heartbeat failure threshold reached (' + self.heartbeatMaxFailures + ' failures)');
+                    self.showConnectionError();
+                    self.attemptReconnection();
                 }
             },
         });
     }
 
-    showConnectionBanner(type, message) {
-        // Remove existing banner if any
-        $('#connection-banner').remove();
+    showConnectionWarning() {
+        const warningHtml = '<div class="connection-warning" style="background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; margin: 10px; border-radius: 4px; text-align: center;">' +
+            '<strong>⚠️ Connection Warning:</strong> Server heartbeat is experiencing issues. Monitoring connection...' +
+            '</div>';
 
-        const bannerClass = type === 'error' ? 'connection-banner-error' : 'connection-banner-warning';
-        const banner = $('<div>')
-            .attr('id', 'connection-banner')
-            .addClass('connection-banner ' + bannerClass)
-            .html('<span>' + message + '</span>' +
-                  '<button id="retry-connection-btn" class="retry-btn">Retry Now</button>' +
-                  '<button id="reload-dashboard-btn" class="reload-btn">Reload Dashboard</button>');
+        // Remove existing warning
+        $('.connection-warning').remove();
 
-        $('body').prepend(banner);
+        // Add warning to header
+        $('.header').after(warningHtml);
+    }
 
-        // Add click handlers
-        $('#retry-connection-btn').click(() => {
-            this.heartbeatFailureCount = 0;
-            this.reconnectAttempts = 0;
-            this.isReconnecting = false;
-            this.hideConnectionBanner();
-            this.heartbeat();
+    showConnectionError() {
+        const errorHtml = '<div class="connection-error" style="background: #f8d7da; border: 1px solid #dc3545; color: #721c24; padding: 15px; margin: 10px; border-radius: 4px; text-align: center;">' +
+            '<strong>🔴 Connection Lost:</strong> Cannot reach Serena server. ' +
+            '<span id="reconnect-status">Attempting to reconnect...</span>' +
+            '<div style="margin-top: 10px;">' +
+            '<button id="manual-reconnect-btn" class="btn" style="padding: 8px 16px; margin-right: 10px;">Retry Now</button>' +
+            '<button id="reload-dashboard-btn" class="btn" style="padding: 8px 16px;">Reload Dashboard</button>' +
+            '</div>' +
+            '</div>';
+
+        // Remove existing error/warning
+        $('.connection-error, .connection-warning').remove();
+
+        // Add error to header
+        $('.header').after(errorHtml);
+
+        // Attach event handlers
+        const self = this;
+        $('#manual-reconnect-btn').click(function() {
+            self.manualReconnect();
         });
-
-        $('#reload-dashboard-btn').click(() => {
-            location.reload();
+        $('#reload-dashboard-btn').click(function() {
+            window.location.reload();
         });
     }
 
-    hideConnectionBanner() {
-        $('#connection-banner').fadeOut(300, function() {
-            $(this).remove();
-        });
+    hideConnectionError() {
+        $('.connection-error, .connection-warning').remove();
     }
 
-    attemptReconnect() {
-        let self = this;
+    attemptReconnection() {
+        const self = this;
 
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            this.showConnectionBanner('error',
-                'Could not reconnect after ' + this.maxReconnectAttempts + ' attempts. ' +
-                'Please check if Serena server is running.');
-            this.isReconnecting = false;
+        if (self.isReconnecting) {
+            return; // Already attempting reconnection
+        }
+
+        if (self.reconnectAttempts >= self.maxReconnectAttempts) {
+            console.error('Maximum reconnection attempts reached (' + self.maxReconnectAttempts + ')');
+            $('#reconnect-status').text('Reconnection failed after ' + self.maxReconnectAttempts + ' attempts. Please reload the dashboard.');
             return;
         }
 
-        this.reconnectAttempts++;
-        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+        self.isReconnecting = true;
+        self.reconnectAttempts++;
 
-        this.showConnectionBanner('error',
-            'Reconnecting... Attempt ' + this.reconnectAttempts + '/' + this.maxReconnectAttempts +
-            ' (next in ' + Math.round(delay / 1000) + 's)');
+        // Calculate exponential backoff delay (2^attempt * 1000ms, max 30 seconds)
+        const baseDelay = 1000;
+        const maxDelay = 30000;
+        const delay = Math.min(Math.pow(2, self.reconnectAttempts) * baseDelay, maxDelay);
+
+        console.log('Reconnection attempt #' + self.reconnectAttempts + ' in ' + (delay / 1000) + ' seconds...');
+        $('#reconnect-status').text('Reconnection attempt #' + self.reconnectAttempts + ' in ' + (delay / 1000) + ' seconds...');
 
         setTimeout(function() {
-            if (self.isReconnecting) {
-                self.heartbeat();
-            }
+            console.log('Attempting reconnection now...');
+            $('#reconnect-status').text('Attempting reconnection #' + self.reconnectAttempts + '...');
+
+            $.ajax({
+                url: '/heartbeat',
+                type: 'GET',
+                timeout: self.heartbeatTimeout,
+                success: function(response) {
+                    console.log('Reconnection successful!');
+                    self.heartbeatFailureCount = 0;
+                    self.reconnectAttempts = 0;
+                    self.isReconnecting = false;
+                    self.hideConnectionError();
+
+                    // Reload page data
+                    self.loadConfigOverview();
+                    self.loadExecutions();
+                },
+                error: function(xhr, status, error) {
+                    console.error('Reconnection attempt #' + self.reconnectAttempts + ' failed: ' + status);
+                    self.isReconnecting = false;
+
+                    // Try again if under max attempts
+                    if (self.reconnectAttempts < self.maxReconnectAttempts) {
+                        self.attemptReconnection();
+                    } else {
+                        $('#reconnect-status').text('Reconnection failed after ' + self.maxReconnectAttempts + ' attempts. Please reload the dashboard.');
+                    }
+                }
+            });
         }, delay);
     }
 
-    // =========================================================================
-    // Runtime Badge - Rust/Python Backend Indicator
-    // =========================================================================
-
-    initRuntimeBadge() {
-        this.$runtimeBadge = $('#runtime-badge');
-        if (this.$runtimeBadge.length > 0) {
-            this.detectRuntime();
-        }
-    }
-
-    detectRuntime() {
-        let self = this;
-        $.ajax({
-            url: '/heartbeat',
-            type: 'GET',
-            timeout: 5000,
-            headers: { 'Accept': 'application/json' },
-            success: function (response) {
-                if (response.agent === 'serena-rust') {
-                    // Rust backend detected
-                    const version = response.version || '0.1.0';
-                    self.setRuntimeState('rust', '⚙️', 'Rust v' + version);
-                } else if (response.agent === 'serena-python' || response.status === 'ok') {
-                    // Python backend detected (or generic response)
-                    self.setRuntimeState('python', '🐍', 'Python');
-                } else {
-                    self.setRuntimeState('error', '⚠️', 'Unknown');
-                }
-            },
-            error: function (xhr, status, error) {
-                console.warn('Runtime detection failed:', error);
-                self.setRuntimeState('error', '⚠️', 'Offline');
-            }
-        });
-    }
-
-    setRuntimeState(state, icon, text) {
-        let $badge = this.$runtimeBadge;
-        if (!$badge || $badge.length === 0) return;
-
-        // Remove all state classes
-        $badge.removeClass(
-            'runtime-badge--connecting runtime-badge--rust runtime-badge--python runtime-badge--error'
-        );
-
-        // Add new state class
-        $badge.addClass('runtime-badge--' + state);
-
-        // Update content
-        $badge.find('.runtime-badge__icon').text(icon);
-        $badge.find('.runtime-badge__text').text(text);
+    manualReconnect() {
+        console.log('Manual reconnection triggered');
+        this.reconnectAttempts = 0; // Reset counter for manual attempt
+        this.isReconnecting = false;
+        this.heartbeatFailureCount = this.heartbeatMaxFailures; // Trigger reconnection
+        this.attemptReconnection();
     }
 
     toggleMenu() {
